@@ -780,17 +780,19 @@ export default function App() {
       />
 
       {/* Global Modals */}
-      <ProductDetailModal
-        product={selectedProduct}
-        onClose={() => setSelectedProduct(null)}
-        onAddToCart={handleAddToCart}
-        onQuickBuy={handleQuickBuy}
-        onNavigateToLanding={(prod) => {
-          setSelectedProduct(null);
-          window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-          navigateToView('landing', { slug: prod.slug, productId: prod.id });
-        }}
-      />
+      {selectedProduct && (
+        <ProductDetailModal
+          product={products.find((p) => p.id === selectedProduct.id) || selectedProduct}
+          onClose={() => setSelectedProduct(null)}
+          onAddToCart={handleAddToCart}
+          onQuickBuy={handleQuickBuy}
+          onNavigateToLanding={(prod) => {
+            setSelectedProduct(null);
+            window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+            navigateToView('landing', { slug: prod.slug, productId: prod.id });
+          }}
+        />
+      )}
 
       <CartDrawer
         isOpen={isCartOpen}
