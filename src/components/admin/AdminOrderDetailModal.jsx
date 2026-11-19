@@ -127,6 +127,19 @@ const AdminOrderDetailModal = ({
                   <strong>{"Special Note:"}</strong> {order.address.orderNote}
                 </div>
               )}
+              {Array.isArray(order.address?.customFields) && order.address.customFields.length > 0 && (
+                <div className="pt-2 border-t border-neutral-200 space-y-1">
+                  <div className="font-bold text-neutral-700 text-[11px] uppercase tracking-wider">
+                    Additional Checkout Info
+                  </div>
+                  {order.address.customFields.map((cf, i) => (
+                    <div key={cf.key || i} className="flex justify-between gap-2 text-neutral-700">
+                      <span className="text-neutral-500">{cf.label}:</span>
+                      <span className="font-semibold text-right">{String(cf.value)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Courier Info Card */}
