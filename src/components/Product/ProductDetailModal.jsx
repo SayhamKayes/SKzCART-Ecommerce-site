@@ -22,6 +22,7 @@ import { marketingTracker } from '../../services/marketing';
 import { StandardProductView, VariableProductView } from './productTypes';
 import { sanitizeText } from '../../utils/textSanitizer';
 import { DEFAULT_PRODUCT_PLACEHOLDER } from '../../utils/productImage';
+import { renderTrustBadgeIcon, resolveEditorialConfig } from '../../utils/productEditorial';
 
 // Helper for bold and italic markdown parsing
 const renderFormattedText = (text) => {
@@ -48,7 +49,8 @@ const ProductDetailModal = ({
   if (!product) return null;
   const { language, isEnglish, getProductName, getCategoryName } = useLanguage();
   const { themeConfig } = useThemeConfig();
-  const prodConfig = themeConfig?.productPage || {};
+  const prodConfig = resolveEditorialConfig(themeConfig);
+  const activeTrustBadges = (prodConfig.trustBadges || []).filter((b) => b && b.enabled !== false && b.text);
   // Compute all product images including any variation images
   const allImages = useMemo(() => {
     const base = Array.isArray(product.images) && product.images.length > 0
@@ -286,30 +288,15 @@ const ProductDetailModal = ({
             )}
           </div>
 
-          {/* Bangladesh Trust & Guarantee Features */}
-          {prodConfig.showGuaranteeBox !== false && (
+          {/* Dynamic Trust & Guarantee Badges (Synced with Product Editorial & Order Summary) */}
+          {prodConfig.showTrustBadgesBox !== false && prodConfig.showGuaranteeBox !== false && activeTrustBadges.length > 0 && (
             <div className="mt-4 pt-4 border-t border-neutral-200/80 space-y-2 text-xs text-neutral-600">
-              {prodConfig.showCodNotice !== false && (
-                <div className="flex items-center gap-2">
-                  <Truck className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>{'Cash on Delivery Nationwide in 64 Districts'}</span>
+              {activeTrustBadges.map((badge, idx) => (
+                <div key={badge.id || idx} className="flex items-center gap-2">
+                  {renderTrustBadgeIcon(badge.icon, badge.color, "w-4 h-4")}
+                  <span>{sanitizeText(badge.text)}</span>
                 </div>
-              )}
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>{sanitizeText(prodConfig.guaranteeTitle, '100% Original & Authentic Product')}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <RotateCcw className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>{sanitizeText(prodConfig.guaranteeSub, '7-Day Easy Return & Replacement Guarantee')}</span>
-              </div>
-              {prodConfig.showDeliveryEstimate !== false && (
-                <div className="flex items-center gap-2 text-neutral-500 text-[11px] pt-1">
-                  <span>
-                    🚚 {`Delivery: Dhaka ${sanitizeText(prodConfig.deliveryDhaka, '24 Hours')}, Nationwide ${sanitizeText(prodConfig.deliveryOutside, '48-72 Hours')}`}
-                  </span>
-                </div>
-              )}
+              ))}
             </div>
           )}
         </div>
