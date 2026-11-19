@@ -1,4 +1,4 @@
-import { Star, ShoppingBag, Zap, Sparkles, Tag, Flame, Truck } from "lucide-react";
+import { Star, ShoppingBag, Zap, Sparkles, Tag, Flame, Clock, Truck } from "lucide-react";
 import { formatBDT, toBengaliNumber } from '../../utils/bangladesh';
 import { getProductTagInfo } from '../../utils/productTags';
 import { useLanguage } from '../../Context/LanguageContext';
@@ -67,6 +67,7 @@ const ProductCard = ({
               {tagInfo.icon === 'sparkles' && <Sparkles className="w-3.5 h-3.5 fill-white text-white" />}
               {tagInfo.icon === 'tag' && <Tag className="w-3.5 h-3.5 text-white" />}
               {tagInfo.icon === 'flame' && <Flame className="w-3.5 h-3.5 fill-white text-white" />}
+              {tagInfo.icon === 'clock' && <Clock className="w-3.5 h-3.5 text-white" />}
             </span>
           )}
 
