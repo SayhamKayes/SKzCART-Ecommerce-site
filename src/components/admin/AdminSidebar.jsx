@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   LayoutDashboard,
   ShoppingBag,
@@ -19,7 +20,12 @@ import {
   GalleryHorizontal,
   Images,
   Trash2,
-  FileText
+  FileText,
+  Layers,
+  ChevronDown,
+  Megaphone,
+  Briefcase,
+  ShieldCheck
 } from "lucide-react";
 import { useThemeConfig } from "../frontPanel/FrontPanelContext";
 
@@ -86,98 +92,97 @@ const AdminSidebar = ({
     }
   })();
 
-  const allNavItems = [
+  const navSections = [
     {
+      type: "item",
       id: "overview",
       label: "Dashboard Overview",
       icon: LayoutDashboard
     },
     {
-      id: "shopDetails",
-      label: "Shop Details & Hub",
-      icon: Store
-    },
-    {
-      id: "themesColors",
-      label: "Themes & Colors",
-      icon: Palette
-    },
-    {
-      id: "sliders",
-      label: "Sliders",
-      icon: GalleryHorizontal
-    },
-    {
-      id: "media",
-      label: "Media Library",
-      icon: Images
-    },
-    {
-      id: "reviews",
-      label: "Customer Reviews",
-      icon: MessageSquareHeart
-    },
-    {
+      type: "item",
       id: "orders",
       label: "Order Management",
       icon: ShoppingBag,
       badge: pendingOrdersCount > 0 ? pendingOrdersCount : undefined
     },
     {
+      type: "item",
       id: "products",
       label: "Products & Inventory",
       icon: Package
     },
     {
-      id: "campaignProducts",
-      label: "Special Campaign Products",
-      icon: Zap
+      type: "group",
+      id: "appearances",
+      label: "Appearances",
+      icon: Layers,
+      items: [
+        { id: "shopDetails", label: "Shop Details & Hub", icon: Store },
+        { id: "themesColors", label: "Themes & Colors", icon: Palette },
+        { id: "sliders", label: "Sliders", icon: GalleryHorizontal },
+        { id: "productEditorial", label: "Product Editorial", icon: FileText },
+        { id: "reviews", label: "Customer Reviews", icon: MessageSquareHeart }
+      ]
     },
     {
-      id: "productEditorial",
-      label: "Product Editorial",
-      icon: FileText
+      type: "item",
+      id: "media",
+      label: "Media Library",
+      icon: Images
     },
     {
-      id: "couriers",
-      label: "Courier Hub",
-      icon: Truck
+      type: "group",
+      id: "marketingCampaigns",
+      label: "Marketing & Campaigns",
+      icon: Megaphone,
+      items: [
+        { id: "campaignProducts", label: "Special Campaign Products", icon: Zap },
+        { id: "marketing", label: "Marketing & CAPI", icon: BarChart3 }
+      ]
     },
     {
-      id: "payments",
-      label: "Payments & Gateways",
-      icon: CreditCard
+      type: "group",
+      id: "operationsFinance",
+      label: "Operations & Finance",
+      icon: Briefcase,
+      items: [
+        { id: "couriers", label: "Courier Hub", icon: Truck },
+        { id: "payments", label: "Payments & Gateways", icon: CreditCard },
+        { id: "notifications", label: "Notifications", icon: BellRing }
+      ]
     },
     {
-      id: "marketing",
-      label: "Marketing & CAPI",
-      icon: BarChart3
-    },
-    {
-      id: "notifications",
-      label: "Notifications",
-      icon: BellRing
-    },
-    {
-      id: "audit",
-      label: "Security Audit Logs",
-      icon: ShieldAlert
-    },
-    {
-      id: "staff",
-      label: "Staff & Access Control",
-      icon: Users
-    },
-    {
-      id: "recycleBin",
-      label: "Recycle Bin",
-      icon: Trash2
+      type: "group",
+      id: "securitySystem",
+      label: "Security & System",
+      icon: ShieldCheck,
+      items: [
+        { id: "recycleBin", label: "Recycle Bin", icon: Trash2 },
+        { id: "audit", label: "Security Audit Logs", icon: ShieldAlert },
+        { id: "staff", label: "Staff & Access Control", icon: Users }
+      ]
     }
   ];
 
-  // Strictly filter visible tabs based on role permissions
+  // Strictly filter visible items and groups based on role permissions
   const allowedTabs = ROLE_PERMISSIONS[currentRole] || ROLE_PERMISSIONS.ADMIN;
-  const visibleNavItems = allNavItems.filter((item) => allowedTabs.includes(item.id));
+  const visibleSections = navSections
+    .map((section) => {
+      if (section.type === "group") {
+        const allowedItems = section.items.filter((item) => allowedTabs.includes(item.id));
+        if (allowedItems.length === 0) return null;
+        return { ...section, items: allowedItems };
+      }
+      return allowedTabs.includes(section.id) ? section : null;
+    })
+    .filter(Boolean);
+
+  // All collapsible groups start collapsed by default
+  const [openGroups, setOpenGroups] = useState({});
+  const toggleGroup = (groupId) => {
+    setOpenGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
+  };
 
   return (
     <aside
@@ -244,42 +249,127 @@ const AdminSidebar = ({
 
         {/* Navigation Items */}
         <nav className={`p-2.5 sm:p-3 space-y-1 ${isCollapsed ? "px-2" : ""}`}>
-          {visibleNavItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = currentTab === item.id;
+          {visibleSections.map((section) => {
+            if (section.type === "group") {
+              const GroupIcon = section.icon;
+              const isOpen = Boolean(openGroups[section.id]);
+              const isChildActive = section.items.some((item) => item.id === currentTab);
+              const submenuId = `admin-submenu-${section.id}`;
+
+              return (
+                <div key={section.id} className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(section.id)}
+                    aria-expanded={isOpen}
+                    aria-controls={submenuId}
+                    title={section.label}
+                    className={`w-full flex items-center rounded-xl text-xs font-semibold transition-all cursor-pointer relative group ${
+                      isCollapsed ? "justify-center p-2.5" : "justify-between px-3 py-2.5"
+                    } ${
+                      isChildActive
+                        ? "bg-neutral-800/90 text-white border border-emerald-500/40"
+                        : "hover:bg-neutral-800 text-neutral-300 hover:text-white"
+                    }`}
+                  >
+                    <div className={`flex items-center gap-2.5 min-w-0 ${isCollapsed ? "justify-center" : ""}`}>
+                      <GroupIcon
+                        className={`w-4 h-4 shrink-0 ${
+                          isChildActive ? "text-emerald-400" : "text-neutral-400 group-hover:text-white"
+                        }`}
+                      />
+                      {!isCollapsed && <span className="truncate">{section.label}</span>}
+                    </div>
+                    {!isCollapsed && (
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 shrink-0 text-neutral-400 transition-transform duration-200 ${
+                          isOpen ? "rotate-180 text-white" : ""
+                        }`}
+                      />
+                    )}
+                  </button>
+
+                  {isOpen && (
+                    <div
+                      id={submenuId}
+                      className={
+                        isCollapsed
+                          ? "space-y-1 p-1 rounded-xl bg-neutral-950/60 border border-neutral-800/80"
+                          : "ml-3 pl-2.5 border-l border-neutral-800 space-y-1"
+                      }
+                    >
+                      {section.items.map((item) => {
+                        const ChildIcon = item.icon;
+                        const isActive = currentTab === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => {
+                              setCurrentTab(item.id);
+                              if (setIsMobileOpen) setIsMobileOpen(false);
+                            }}
+                            title={item.label}
+                            className={`w-full flex items-center rounded-xl text-xs font-semibold transition-all cursor-pointer relative group ${
+                              isCollapsed ? "justify-center p-2" : "gap-2.5 px-3 py-2"
+                            } ${
+                              isActive
+                                ? "bg-emerald-600 text-white shadow-xs shadow-emerald-950/40"
+                                : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
+                            }`}
+                          >
+                            <ChildIcon
+                              className={`w-3.5 h-3.5 shrink-0 ${
+                                isActive ? "text-white" : "text-neutral-400 group-hover:text-white"
+                              }`}
+                            />
+                            {!isCollapsed && <span className="truncate">{item.label}</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            const Icon = section.icon;
+            const isActive = currentTab === section.id;
             return (
               <button
-                key={item.id}
+                key={section.id}
+                type="button"
                 onClick={() => {
-                  setCurrentTab(item.id);
+                  setCurrentTab(section.id);
                   if (setIsMobileOpen) setIsMobileOpen(false);
                 }}
-                title={item.label}
-                className={`w-full flex items-center rounded-xl text-xs font-semibold transition-all cursor-pointer relative group ${isCollapsed
-                    ? "justify-center p-2.5"
-                    : "justify-between px-3 py-2.5"
-                  } ${isActive
+                title={section.label}
+                className={`w-full flex items-center rounded-xl text-xs font-semibold transition-all cursor-pointer relative group ${
+                  isCollapsed ? "justify-center p-2.5" : "justify-between px-3 py-2.5"
+                } ${
+                  isActive
                     ? "bg-emerald-600 text-white shadow-xs shadow-emerald-950/40"
                     : "hover:bg-neutral-800 text-neutral-400 hover:text-white"
-                  }`}
+                }`}
               >
                 <div className={`flex items-center gap-2.5 min-w-0 ${isCollapsed ? "justify-center" : ""}`}>
                   <Icon
-                    className={`w-4 h-4 shrink-0 ${isActive ? "text-white" : "text-neutral-400 group-hover:text-white"
-                      }`}
+                    className={`w-4 h-4 shrink-0 ${
+                      isActive ? "text-white" : "text-neutral-400 group-hover:text-white"
+                    }`}
                   />
-                  {!isCollapsed && <span className="truncate">{item.label}</span>}
+                  {!isCollapsed && <span className="truncate">{section.label}</span>}
                 </div>
 
                 {/* Badge when expanded */}
-                {!isCollapsed && item.badge !== undefined && (
+                {!isCollapsed && section.badge !== undefined && (
                   <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-neutral-950 shrink-0">
-                    {item.badge}
+                    {section.badge}
                   </span>
                 )}
 
                 {/* Compact indicator when collapsed */}
-                {isCollapsed && item.badge !== undefined && (
+                {isCollapsed && section.badge !== undefined && (
                   <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500" />
                 )}
               </button>
