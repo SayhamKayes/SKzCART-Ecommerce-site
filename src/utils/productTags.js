@@ -4,6 +4,7 @@ export const PRODUCT_TAGS = [
   { id: 'NEW_ARRIVAL', labelEn: '✨ New Arrival', labelBn: '✨ New Arrival', shortLabelEn: 'New Arrival', shortLabelBn: 'New Arrival', label: '✨ New Arrival', shortLabel: 'New Arrival', icon: 'sparkles', color: 'bg-indigo-600 text-white', badgeColor: 'bg-indigo-100 text-indigo-800' },
   { id: 'ON_SALE', labelEn: '🏷️ On Sale', labelBn: '🏷️ On Sale', shortLabelEn: 'On Sale', shortLabelBn: 'On Sale', label: '🏷️ On Sale', shortLabel: 'On Sale', icon: 'tag', color: 'bg-rose-600 text-white', badgeColor: 'bg-rose-100 text-rose-800' },
   { id: 'HOT_DEAL', labelEn: '🔥 Hot Deal', labelBn: '🔥 Hot Deal', shortLabelEn: 'Hot Deal', shortLabelBn: 'Hot Deal', label: '🔥 Hot Deal', shortLabel: 'Hot Deal', icon: 'flame', color: 'bg-amber-600 text-white', badgeColor: 'bg-amber-100 text-amber-800' },
+  { id: 'LIMITED_OFFER', labelEn: '⏳ Limited Offer', labelBn: '⏳ Limited Offer', shortLabelEn: 'Limited Offer', shortLabelBn: 'Limited Offer', label: '⏳ Limited Offer', shortLabel: 'Limited Offer', icon: 'clock', color: 'bg-orange-600 text-white', badgeColor: 'bg-orange-100 text-orange-800' },
 ];
 
 export function getProductTagInfo(product) {
@@ -55,5 +56,20 @@ export function getProductTagInfo(product) {
       badgeColor: 'bg-amber-100 text-amber-800',
     };
   }
+  if (rawTag === 'LIMITED_OFFER' || rawTag === 'LIMITED OFFER' || rawTag === 'LIMITED') {
+    return {
+      id: 'LIMITED_OFFER',
+      label: 'Limited Offer',
+      labelEn: 'Limited Offer',
+      labelBn: 'Limited Offer',
+      icon: 'clock',
+      color: 'bg-orange-600 text-white',
+      badgeColor: 'bg-orange-100 text-orange-800',
+    };
+  }
   return null;
+}
+
+export function hasLimitedOfferBadge(product) {
+  return getProductTagInfo(product)?.id === 'LIMITED_OFFER';
 }
