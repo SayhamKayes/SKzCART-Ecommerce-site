@@ -9,12 +9,13 @@ import {
   Sparkles,
   Tag,
   Flame,
+  Clock,
   ShoppingBag,
   CheckCircle2,
   AlertCircle
 } from "lucide-react";
 import { formatBDT, toBengaliNumber } from '../../utils/bangladesh';
-import { getProductTagInfo } from '../../utils/productTags';
+import { getProductTagInfo, hasLimitedOfferBadge } from '../../utils/productTags';
 import { useLanguage } from '../../Context/LanguageContext';
 import { useThemeConfig } from '../frontPanel/FrontPanelContext';
 import { marketingTracker } from '../../services/marketing';
@@ -225,6 +226,7 @@ const ProductDetailModal = ({
                   {tagInfo.icon === 'sparkles' && <Sparkles className="w-3.5 h-3.5 fill-white" />}
                   {tagInfo.icon === 'tag' && <Tag className="w-3.5 h-3.5" />}
                   {tagInfo.icon === 'flame' && <Flame className="w-3.5 h-3.5 fill-white" />}
+                  {tagInfo.icon === 'clock' && <Clock className="w-3.5 h-3.5" />}
                   <span>{tagInfo.label}</span>
                 </span>
               )}
@@ -414,7 +416,7 @@ const ProductDetailModal = ({
                 <span>{"Sorry, this product is currently unavailable (Out of Stock)."}</span>
               </div>
             ) : (
-              prodConfig.showUrgencyBadge !== false && activeStock <= (prodConfig.urgencyStockThreshold || 15) && (
+              hasLimitedOfferBadge(product) && prodConfig.showUrgencyBadge !== false && (
                 <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold flex items-center gap-2 animate-pulse">
                   <Flame className="w-4 h-4 text-amber-600 shrink-0" />
                   <span>{sanitizeText(prodConfig.urgencyText, '🔥 Very limited stock remaining! Complete your order quickly.')}</span>
