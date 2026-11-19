@@ -805,7 +805,8 @@ const AdminProducts = ({
     setEditSku(product.sku || "");
 
     // Pre-fill Tag / Badge
-    const currentTag = product.badge || product.tag || (product.isHotDeal ? "BESTSELLER" : "");
+    const matchedTagInfo = getProductTagInfo(product);
+    const currentTag = matchedTagInfo?.id || product.badge || product.tag || "";
     setEditTag(currentTag);
 
     // Pre-fill new requested fields
@@ -2034,7 +2035,7 @@ const AdminProducts = ({
                     <label className="block font-bold text-neutral-800 text-xs">
                       {"Product Tag / Badge"}
                     </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-xs">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-xs">
                       {PRODUCT_TAGS.map((t) => (
                         <button
                           key={t.id}
@@ -2658,7 +2659,7 @@ const AdminProducts = ({
                     <label className="block font-bold text-neutral-800 text-xs">
                       {"Product Tag / Badge"}
                     </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-xs">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-xs">
                       {PRODUCT_TAGS.map((t) => (
                         <button
                           key={t.id}
