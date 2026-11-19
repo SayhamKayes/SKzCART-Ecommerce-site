@@ -35,6 +35,11 @@ import { Campaign_Header, Product_Header } from "../Header";
 import { Footer } from "../Footer";
 import { getProductCampaignInfo } from "../../utils/campaignHelper";
 import { getProductTagInfo, hasLimitedOfferBadge } from "../../utils/productTags";
+import {
+  renderTrustBadgeIcon,
+  resolveEditorialConfig,
+  formatEditorialCardText,
+} from "../../utils/productEditorial";
 import { getLocalizedProductName } from "../../utils/translations";
 import { buildBgStyle } from "../../utils/themeHelper";
 import codImg from "../../assets/COD.png";
@@ -61,6 +66,7 @@ export function CampaignLandingPage({
   const product = productProp || {};
   const productTagInfo = getProductTagInfo(product);
   const isLimitedOfferProduct = hasLimitedOfferBadge(product);
+  const prodEditorial = useMemo(() => resolveEditorialConfig(themeConfig), [themeConfig]);
 
   // Check if THIS specific product is in an active campaign
   const campaignInfo = useMemo(() => {
@@ -191,12 +197,25 @@ export function CampaignLandingPage({
   const [phone, setPhone] = useState(currentUser?.phone || "");
   const [email, setEmail] = useState(currentUser?.email || "");
   const [customerName, setCustomerName] = useState(currentUser?.name || currentUser?.fullName || "");
+  const [firstName, setFirstName] = useState(() => {
+    const raw = (currentUser?.name || currentUser?.fullName || "").trim();
+    return raw ? raw.split(/\s+/)[0] : "";
+  });
+  const [lastName, setLastName] = useState(() => {
+    const raw = (currentUser?.name || currentUser?.fullName || "").trim();
+    const parts = raw ? raw.split(/\s+/) : [];
+    return parts.length > 1 ? parts.slice(1).join(" ") : "";
+  });
   const [fullAddress, setFullAddress] = useState(currentUser?.fullAddress || currentUser?.address || "");
   const [phoneError, setPhoneError] = useState("");
   const [emailError, setEmailError] = useState("");
   const [nameError, setNameError] = useState("");
+  const [firstNameError, setFirstNameError] = useState("");
+  const [lastNameError, setLastNameError] = useState("");
   const [addressError, setAddressError] = useState("");
   const [thanaError, setThanaError] = useState("");
+  const [customFieldValues, setCustomFieldValues] = useState({});
+  const [customFieldErrors, setCustomFieldErrors] = useState({});
 
   // Coupon State
   const [appliedCoupon, setAppliedCoupon] = useState(null);
@@ -251,7 +270,11 @@ export function CampaignLandingPage({
   useEffect(() => {
     if (currentUser) {
       if (currentUser.name || currentUser.fullName) {
-        setCustomerName(currentUser.name || currentUser.fullName);
+        const full = (currentUser.name || currentUser.fullName).trim();
+        setCustomerName(full);
+        const parts = full.split(/\s+/);
+        setFirstName(parts[0] || "");
+        setLastName(parts.length > 1 ? parts.slice(1).join(" ") : "");
       }
       if (currentUser.phone) {
         setPhone(currentUser.phone);
@@ -446,56 +469,118 @@ export function CampaignLandingPage({
     setPhoneError("");
     setEmailError("");
     setNameError("");
+    setFirstNameError("");
+    setLastNameError("");
     setAddressError("");
     setThanaError("");
+    setCustomFieldErrors({});
+
+    const activeFields = (prodEditorial.checkoutFields || []).filter((f) => f && f.enabled !== false);
+    const findField = (key) => activeFields.find((f) => f.key === key);
+
+    const nameField = findField("full_name");
+    const emailField = findField("email");
+    const phoneField = findField("phone");
+    const districtField = findField("district");
+    const thanaField = findField("thana");
+    const addressField = findField("full_address");
 
     let hasError = false;
-
-    if (!customerName.trim()) {
-      setNameError("Please enter your full name");
+    let firstInvalidElementId = null;
+    const markInvalid = (elId) => {
       hasError = true;
+      if (!firstInvalidElementId) firstInvalidElementId = elId;
+    };
+
+    if (nameField) {
+      if (nameField.nameSplitMode) {
+        if (nameField.required !== false && !firstName.trim()) {
+          setFirstNameError(nameField.errorMessage || "Please enter your first name");
+          markInvalid("checkout-first-name");
+        }
+        if (nameField.required !== false && !lastName.trim()) {
+          setLastNameError("Please enter your last name");
+          markInvalid("checkout-last-name");
+        }
+      } else if (nameField.required !== false && !customerName.trim()) {
+        setNameError(nameField.errorMessage || "Please enter your full name");
+        markInvalid("checkout-full-name");
+      }
     }
 
-    if (!email.trim()) {
-      setEmailError("Please enter your email address");
-      hasError = true;
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setEmailError(
-        "Please enter a valid email address (e.g. name@example.com)"
-      );
-      hasError = true;
+    const resolvedEmail = emailField ? email.trim() : "";
+    if (emailField) {
+      if (emailField.required && !resolvedEmail) {
+        setEmailError(emailField.errorMessage || "Please enter your email address");
+        markInvalid("checkout-email");
+      } else if (resolvedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resolvedEmail)) {
+        setEmailError("Please enter a valid email address (e.g. name@example.com)");
+        markInvalid("checkout-email");
+      }
     }
 
     let normalizedPhone = phone.trim();
-    if (countryCode === "+880") {
-      normalizedPhone = normalizeBangladeshPhone(phone);
-      if (!/^01[3-9]\d{8}$/.test(normalizedPhone)) {
-        setPhoneError(
-          "Please enter a valid 11-digit Bangladeshi mobile number (01XXXXXXXXX)"
-        );
-        hasError = true;
+    if (!phoneField || phoneField.required !== false || normalizedPhone) {
+      if (countryCode === "+880") {
+        normalizedPhone = normalizeBangladeshPhone(phone);
+        if (!/^01[3-9]\d{8}$/.test(normalizedPhone)) {
+          setPhoneError(
+            phoneField?.errorMessage ||
+              "Please enter a valid 11-digit Bangladeshi mobile number (01XXXXXXXXX)"
+          );
+          markInvalid("checkout-phone");
+        }
+      } else {
+        const digits = phone.replace(/\D/g, "");
+        if (digits.length < 6) {
+          setPhoneError(phoneField?.errorMessage || "Please enter a valid phone number");
+          markInvalid("checkout-phone");
+        }
+        normalizedPhone = `${countryCode}${digits}`;
       }
-    } else {
-      const digits = phone.replace(/\D/g, "");
-      if (digits.length < 6) {
-        setPhoneError(
-          "Please enter a valid phone number"
-        );
-        hasError = true;
-      }
-      normalizedPhone = `${countryCode}${digits}`;
     }
 
-    if (!thana.trim()) {
-      setThanaError("Please select thana or area");
-      hasError = true;
+    if (thanaField && thanaField.required !== false && !thana.trim()) {
+      setThanaError(thanaField.errorMessage || "Please select thana or area");
+      markInvalid("checkout-thana");
     }
 
-    if (!fullAddress.trim() || fullAddress.trim().length < 6) {
-      setAddressError(
-        "Please enter your full address (house, road, area)"
-      );
-      hasError = true;
+    if (addressField && addressField.required !== false && (!fullAddress.trim() || fullAddress.trim().length < 6)) {
+      setAddressError(addressField.errorMessage || "Please enter your full address (house, road, area)");
+      markInvalid("checkout-full-address");
+    }
+
+    // Validate dynamic custom fields
+    const nextCustomErrors = {};
+    const customFieldsPayload = [];
+    for (const cf of activeFields) {
+      if (cf.core) continue;
+      const fKey = cf.key || cf.id;
+      const rawVal = customFieldValues[fKey] !== undefined ? customFieldValues[fKey] : (cf.defaultValue ?? "");
+      if (cf.type === "checkbox") {
+        if (cf.required && !rawVal) {
+          nextCustomErrors[fKey] = cf.errorMessage || `${cf.label} is required`;
+          markInvalid(`checkout-custom-${fKey}`);
+        }
+        if (rawVal) {
+          customFieldsPayload.push({ key: fKey, label: cf.label || fKey, value: "Yes" });
+        }
+      } else {
+        const strVal = String(rawVal || "").trim();
+        if (cf.required && !strVal) {
+          nextCustomErrors[fKey] = cf.errorMessage || `Please enter ${cf.label || fKey}`;
+          markInvalid(`checkout-custom-${fKey}`);
+        } else if (cf.type === "email" && strVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(strVal)) {
+          nextCustomErrors[fKey] = "Please enter a valid email address";
+          markInvalid(`checkout-custom-${fKey}`);
+        }
+        if (strVal) {
+          customFieldsPayload.push({ key: fKey, label: cf.label || fKey, value: strVal });
+        }
+      }
+    }
+    if (Object.keys(nextCustomErrors).length > 0) {
+      setCustomFieldErrors(nextCustomErrors);
     }
 
     const isManualMfs = selectedPayment === "bkash" || selectedPayment === "nagad" || selectedPayment === "rocket";
@@ -508,11 +593,24 @@ export function CampaignLandingPage({
       }
     }
 
-    if (hasError) return;
+    if (hasError) {
+      if (firstInvalidElementId) {
+        setTimeout(() => {
+          document.getElementById(firstInvalidElementId)?.focus();
+        }, 0);
+      }
+      return;
+    }
 
     setIsSubmittingOrder(true);
-    const name = customerName.trim();
-    const address = fullAddress.trim();
+    const name = nameField
+      ? (nameField.nameSplitMode
+          ? `${firstName.trim()} ${lastName.trim()}`.trim()
+          : customerName.trim()) || "Guest Customer"
+      : "Guest Customer";
+    const resolvedDistrict = districtField ? district : "Dhaka";
+    const resolvedThana = thanaField ? thana.trim() : "";
+    const address = addressField ? fullAddress.trim() : "";
     const orderId = `BD-${Math.floor(100000 + Math.random() * 900000)}`;
 
     const effectiveMethod = selectedPayment === "cod"
@@ -533,17 +631,23 @@ export function CampaignLandingPage({
           variant: typeof selectedVariant === 'object' ? selectedVariant?.name : selectedVariant,
         }
       ],
-      customerEmail: email.trim(),
+      customerEmail: resolvedEmail,
       address: {
         fullName: name,
         customerName: name,
+        ...(nameField?.nameSplitMode ? { firstName: firstName.trim(), lastName: lastName.trim() } : {}),
         phone: normalizedPhone,
-        email: email.trim(),
-        address: `${address}${thana.trim() ? `, Thana: ${thana.trim()}` : ""}, District: ${district}`,
-        fullAddress: address,
-        district,
-        thana: thana.trim() || (district === "Dhaka" ? "Dhaka City" : "General"),
+        email: resolvedEmail,
+        address: [
+          address || "Not provided",
+          resolvedThana ? `Thana: ${resolvedThana}` : "",
+          `District: ${resolvedDistrict}`,
+        ].filter(Boolean).join(", "),
+        fullAddress: address || "Not provided",
+        district: resolvedDistrict,
+        thana: resolvedThana || (resolvedDistrict === "Dhaka" ? "Dhaka City" : "General"),
         deliveryZone,
+        customFields: customFieldsPayload.length > 0 ? customFieldsPayload : undefined,
         paymentTrxId: isManualMfs ? paymentTrxId.trim() : undefined,
         senderWallet: isManualMfs ? senderWallet.trim() : undefined,
       },
@@ -1200,23 +1304,6 @@ export function CampaignLandingPage({
                     Specifications
                   </button>
                 )}
-
-                <button
-                  type="button"
-                  onClick={() => setActiveInfoTab("shipping")}
-                  style={
-                    activeInfoTab === "shipping"
-                      ? { color: pp.tabActiveColor || undefined, borderBottomColor: pp.tabActiveBorderColor || undefined }
-                      : { color: pp.tabInactiveColor || undefined }
-                  }
-                  className={`pb-3.5 text-sm sm:text-base font-bold whitespace-nowrap border-b-2 transition-colors cursor-pointer -mb-px ${
-                    activeInfoTab === "shipping"
-                      ? "border-emerald-700 text-emerald-800"
-                      : "border-transparent text-neutral-500 hover:text-neutral-900"
-                  }`}
-                >
-                  Delivery &amp; Return
-                </button>
               </div>
 
               {/* Tab Panel: Description */}
@@ -1343,39 +1430,6 @@ export function CampaignLandingPage({
                   ))}
                 </div>
               )}
-
-              {/* Tab Panel: Delivery & Return Policy */}
-              {activeInfoTab === "shipping" && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs sm:text-sm">
-                  <div className="p-4 rounded-2xl bg-neutral-50 border border-neutral-200 space-y-1.5">
-                    <div className="flex items-center gap-2 font-bold text-neutral-900">
-                      <Truck className="w-4 h-4 text-emerald-600" />
-                      <span>Nationwide Delivery</span>
-                    </div>
-                    <p className="text-neutral-600 leading-relaxed">
-                      Inside Dhaka: ৳70 (24–48h) • Sub-Dhaka: ৳100 • Outside Dhaka: ৳130 (48–72h).
-                    </p>
-                  </div>
-                  <div className="p-4 rounded-2xl bg-neutral-50 border border-neutral-200 space-y-1.5">
-                    <div className="flex items-center gap-2 font-bold text-neutral-900">
-                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                      <span>Inspect Before Payment</span>
-                    </div>
-                    <p className="text-neutral-600 leading-relaxed">
-                      Check the parcel and verify product quality in front of the delivery rider before paying.
-                    </p>
-                  </div>
-                  <div className="p-4 rounded-2xl bg-neutral-50 border border-neutral-200 space-y-1.5">
-                    <div className="flex items-center gap-2 font-bold text-neutral-900">
-                      <RotateCcw className="w-4 h-4 text-amber-600" />
-                      <span>7-Day Easy Replacement</span>
-                    </div>
-                    <p className="text-neutral-600 leading-relaxed">
-                      {product.warranty || "7-Day hassle-free replacement guarantee for any manufacturing defect."}
-                    </p>
-                  </div>
-                </div>
-              )}
             </div>
           </section>
 
@@ -1444,23 +1498,32 @@ export function CampaignLandingPage({
             </section>
           )}
 
-          {/* 9. TRUST INDICATORS SECTION */}
-          <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {[
-                { icon: "🚚", title: "Nationwide Cash on Delivery", text: "Inside Dhaka ৳70 • Outside Dhaka ৳130" },
-                { icon: "🔒", title: "100% Secure & Verified", text: "Zero advance payment risk" },
-                { icon: "📦", title: "Inspect Before Pay", text: "Check parcel in front of delivery agent" },
-                { icon: "💬", title: "Direct Customer Care", text: `Hotline & WhatsApp: ${themeConfig?.shop?.whatsappNumber || themeConfig?.shop?.hotline || "09612345678"}` },
-              ].map((item, idx) => (
-                <div key={idx} className="bg-white rounded-2xl border border-neutral-200 p-5 text-center shadow-xs hover:border-emerald-300 transition-colors">
-                  <div className="text-3xl mb-2">{item.icon}</div>
-                  <h4 className="font-bold text-neutral-900 text-sm mb-1">{item.title}</h4>
-                  <p className="text-xs text-neutral-500">{item.text}</p>
+          {/* 9. DYNAMIC EDITORIAL TRUST CARDS SECTION */}
+          {prodEditorial.showEditorialCards !== false && (() => {
+            const visibleCards = (prodEditorial.editorialCards || []).filter((c) => c && c.enabled !== false);
+            if (visibleCards.length === 0) return null;
+            const gridColsClass =
+              visibleCards.length === 1
+                ? "grid-cols-1"
+                : visibleCards.length === 2
+                  ? "grid-cols-1 sm:grid-cols-2"
+                  : visibleCards.length === 3
+                    ? "grid-cols-1 sm:grid-cols-3"
+                    : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4";
+            return (
+              <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div className={`grid ${gridColsClass} gap-4`}>
+                  {visibleCards.map((item, idx) => (
+                    <div key={item.id || idx} className="bg-white rounded-2xl border border-neutral-200 p-5 text-center shadow-xs hover:border-emerald-300 transition-colors">
+                      <div className="text-3xl mb-2">{item.icon || "✨"}</div>
+                      <h4 className="font-bold text-neutral-900 text-sm mb-1">{item.title}</h4>
+                      <p className="text-xs text-neutral-500">{formatEditorialCardText(item.text, themeConfig)}</p>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </section>
+              </section>
+            );
+          })()}
 
           {/* 10. FREQUENTLY ASKED QUESTIONS (FAQ ACCORDION) */}
           {product.faqs?.length > 0 && (
@@ -1555,15 +1618,19 @@ export function CampaignLandingPage({
           {/* 11. CHECKOUT SECTION */}
           <section id="checkout-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 scroll-mt-20">
             <div className="text-center max-w-2xl mx-auto mb-8">
-              <span className="px-3 py-1 rounded-full bg-orange-100 text-orange-900 font-bold text-xs uppercase tracking-wider">
-                Easy Order Process
-              </span>
+              {prodEditorial.checkoutBadgeText && (
+                <span className="px-3 py-1 rounded-full bg-orange-100 text-orange-900 font-bold text-xs uppercase tracking-wider">
+                  {prodEditorial.checkoutBadgeText}
+                </span>
+              )}
               <h2 className="text-2xl sm:text-3xl font-black text-neutral-900 mt-2">
-                Fill out the form below to confirm your order
+                {prodEditorial.checkoutTitle || "Fill out the form below to confirm your order"}
               </h2>
-              <p className="text-xs sm:text-sm text-neutral-500 mt-1">
-                No account creation or advance payment needed
-              </p>
+              {prodEditorial.checkoutSubtitle && (
+                <p className="text-xs sm:text-sm text-neutral-500 mt-1">
+                  {prodEditorial.checkoutSubtitle}
+                </p>
+              )}
             </div>
 
             <form
@@ -1579,148 +1646,410 @@ export function CampaignLandingPage({
                 className="lg:col-span-7 bg-white rounded-3xl border border-neutral-200 p-6 sm:p-8 shadow-md space-y-4"
               >
                 <h3 className="text-lg font-bold text-neutral-900 border-b border-neutral-100 pb-3">
-                  {"1. Your Delivery Information"}
+                  {prodEditorial.checkoutFormHeading || "1. Your Delivery Information"}
                 </h3>
 
-                <div>
-                  <label className="block text-xs font-bold text-neutral-700 mb-1.5">
-                    {"Your Full Name"} <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    name="name"
-                    required
-                    value={customerName}
-                    onChange={(e) => {
-                      setCustomerName(e.target.value);
-                      if (nameError) setNameError("");
-                    }}
-                    placeholder={"Enter your full name"}
-                    className={`w-full px-4 py-3 rounded-xl border ${nameError ? "border-rose-500 bg-rose-50/20" : "border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"} text-sm outline-none transition-all`}
-                  />
-                  {nameError && (
-                    <p className="text-[11px] text-rose-500 mt-1">{nameError}</p>
-                  )}
-                </div>
+                {/* Dynamic WooCommerce-style Checkout Fields */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {(prodEditorial.checkoutFields || [])
+                    .filter((field) => field && field.enabled !== false)
+                    .map((field, fIdx) => {
+                      const colSpanClass = field.width === "half" ? "sm:col-span-1" : "sm:col-span-2";
+                      const isReq = field.required !== false;
 
-                {/* Email Address - Placed immediately after Full Name */}
-                <div>
-                  <label className="block text-xs font-bold text-neutral-700 mb-1.5">
-                    {"Your Email Address"} <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      name="email"
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => {
-                        setEmail(e.target.value);
-                        if (emailError) setEmailError("");
-                      }}
-                      placeholder={"example@domain.com (for order tracking & invoice)"}
-                      className={`w-full pl-10 pr-4 py-3 rounded-xl border ${emailError ? "border-rose-500 bg-rose-50/20" : "border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"} text-sm outline-none transition-all`}
-                    />
-                  </div>
-                  {emailError && (
-                    <p className="text-[11px] text-rose-500 mt-1">{emailError}</p>
-                  )}
-                </div>
+                      if (field.key === "full_name" || field.type === "name") {
+                        if (field.nameSplitMode) {
+                          return (
+                            <div key={field.id || field.key || fIdx} className="sm:col-span-2 space-y-1.5">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                  <label htmlFor="checkout-first-name" className="block text-xs font-bold text-neutral-700 mb-1.5">
+                                    {field.firstNameLabel || "First Name"} {isReq && <span className="text-rose-500" aria-hidden="true">*</span>}
+                                  </label>
+                                  <input
+                                    id="checkout-first-name"
+                                    name="firstName"
+                                    type="text"
+                                    autoComplete="given-name"
+                                    required={isReq}
+                                    aria-invalid={Boolean(firstNameError) || undefined}
+                                    value={firstName}
+                                    onChange={(e) => {
+                                      setFirstName(e.target.value);
+                                      if (firstNameError) setFirstNameError("");
+                                    }}
+                                    placeholder={field.firstNamePlaceholder ?? ""}
+                                    className={`w-full px-4 py-3 rounded-xl border ${firstNameError ? "border-rose-500 bg-rose-50/20" : "border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"} text-sm outline-none transition-all`}
+                                  />
+                                  {firstNameError && (
+                                    <p className="text-[11px] text-rose-500 mt-1" role="alert">{firstNameError}</p>
+                                  )}
+                                </div>
+                                <div>
+                                  <label htmlFor="checkout-last-name" className="block text-xs font-bold text-neutral-700 mb-1.5">
+                                    {field.lastNameLabel || "Last Name"} {isReq && <span className="text-rose-500" aria-hidden="true">*</span>}
+                                  </label>
+                                  <input
+                                    id="checkout-last-name"
+                                    name="lastName"
+                                    type="text"
+                                    autoComplete="family-name"
+                                    required={isReq}
+                                    aria-invalid={Boolean(lastNameError) || undefined}
+                                    value={lastName}
+                                    onChange={(e) => {
+                                      setLastName(e.target.value);
+                                      if (lastNameError) setLastNameError("");
+                                    }}
+                                    placeholder={field.lastNamePlaceholder ?? ""}
+                                    className={`w-full px-4 py-3 rounded-xl border ${lastNameError ? "border-rose-500 bg-rose-50/20" : "border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"} text-sm outline-none transition-all`}
+                                  />
+                                  {lastNameError && (
+                                    <p className="text-[11px] text-rose-500 mt-1" role="alert">{lastNameError}</p>
+                                  )}
+                                </div>
+                              </div>
+                              {field.helperText && (
+                                <p className="text-[11px] text-neutral-500">{field.helperText}</p>
+                              )}
+                            </div>
+                          );
+                        }
 
-                <div>
-                  <label className="block text-xs font-bold text-neutral-700 mb-1.5">
-                    {"Mobile Number"} <span className="text-rose-500">*</span>
-                  </label>
-                  <div className={`flex rounded-xl border ${phoneError ? "border-rose-500 bg-rose-50/20" : "border-neutral-300 focus-within:border-emerald-600 focus-within:ring-2 focus-within:ring-emerald-600/20"} bg-white overflow-hidden transition-all`}>
-                    <input
-                      name="phone"
-                      type="tel"
-                      required
-                      value={phone}
-                      onChange={(e) => {
-                        setPhone(e.target.value);
-                        if (phoneError) setPhoneError("");
-                      }}
-                      placeholder="01XXXXXXXXX (11 digits)"
-                      className="w-full px-4 py-3 text-sm text-neutral-900 placeholder:text-neutral-400 outline-none bg-transparent"
-                    />
-                  </div>
-                  {phoneError ? (
-                    <p className="text-[11px] text-rose-500 mt-1">{phoneError}</p>
-                  ) : (
-                    <p className="text-[11px] text-neutral-500 mt-1">
-                      {"We will call you for order confirmation & delivery updates"}
-                    </p>
-                  )}
-                </div>
+                        return (
+                          <div key={field.id || field.key || fIdx} className={colSpanClass}>
+                            <label htmlFor="checkout-full-name" className="block text-xs font-bold text-neutral-700 mb-1.5">
+                              {field.label || "Your Full Name"} {isReq && <span className="text-rose-500" aria-hidden="true">*</span>}
+                            </label>
+                            <input
+                              id="checkout-full-name"
+                              name="name"
+                              type="text"
+                              autoComplete="name"
+                              required={isReq}
+                              aria-invalid={Boolean(nameError) || undefined}
+                              value={customerName}
+                              onChange={(e) => {
+                                setCustomerName(e.target.value);
+                                if (nameError) setNameError("");
+                              }}
+                              placeholder={field.placeholder ?? ""}
+                              className={`w-full px-4 py-3 rounded-xl border ${nameError ? "border-rose-500 bg-rose-50/20" : "border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"} text-sm outline-none transition-all`}
+                            />
+                            {nameError ? (
+                              <p className="text-[11px] text-rose-500 mt-1" role="alert">{nameError}</p>
+                            ) : field.helperText ? (
+                              <p className="text-[11px] text-neutral-500 mt-1">{field.helperText}</p>
+                            ) : null}
+                          </div>
+                        );
+                      }
 
-                {/* Delivery Area: Side-by-side District dropdown + Thana dropdown */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-neutral-700 mb-1.5">
-                      {"District"} <span className="text-rose-500">*</span>
-                    </label>
-                    <select
-                      value={district}
-                      onChange={(e) => handleDistrictChange(e.target.value)}
-                      className="w-full px-3.5 py-3 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 text-sm outline-none transition-all bg-white font-medium cursor-pointer"
-                    >
-                      {BANGLADESH_DISTRICTS.map((d) => (
-                        <option key={d} value={d}>
-                          {d} {d === "Dhaka" ? "(৳70)" : ["Gazipur", "Narayanganj", "Munshiganj", "Manikganj", "Narsingdi"].includes(d) ? "(৳100)" : "(৳130)"}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      if (field.key === "email") {
+                        return (
+                          <div key={field.id || field.key || fIdx} className={colSpanClass}>
+                            <label htmlFor="checkout-email" className="block text-xs font-bold text-neutral-700 mb-1.5">
+                              {field.label || "Your Email Address"} {Boolean(field.required) && <span className="text-rose-500" aria-hidden="true">*</span>}
+                            </label>
+                            <div className="relative">
+                              <Mail className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
+                              <input
+                                id="checkout-email"
+                                name="email"
+                                type="email"
+                                autoComplete="email"
+                                autoCorrect="off"
+                                autoCapitalize="none"
+                                spellCheck={false}
+                                required={Boolean(field.required)}
+                                aria-invalid={Boolean(emailError) || undefined}
+                                value={email}
+                                onChange={(e) => {
+                                  setEmail(e.target.value);
+                                  if (emailError) setEmailError("");
+                                }}
+                                placeholder={field.placeholder ?? ""}
+                                className={`w-full pl-10 pr-4 py-3 rounded-xl border ${emailError ? "border-rose-500 bg-rose-50/20" : "border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"} text-sm outline-none transition-all`}
+                              />
+                            </div>
+                            {emailError ? (
+                              <p className="text-[11px] text-rose-500 mt-1" role="alert">{emailError}</p>
+                            ) : field.helperText ? (
+                              <p className="text-[11px] text-neutral-500 mt-1">{field.helperText}</p>
+                            ) : null}
+                          </div>
+                        );
+                      }
 
-                  <div>
-                    <label className="block text-xs font-bold text-neutral-700 mb-1.5">
-                      {"Select Thana / Area"} <span className="text-rose-500">*</span>
-                    </label>
-                    <select
-                      name="thana"
-                      required
-                      value={thana}
-                      onChange={(e) => {
-                        setThana(e.target.value);
-                        if (thanaError) setThanaError("");
-                      }}
-                      className={`w-full px-3.5 py-3 rounded-xl border ${thanaError ? "border-rose-500 bg-rose-50/20" : "border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"} text-sm outline-none transition-all bg-white font-medium cursor-pointer`}
-                    >
-                      <option value="">
-                        {"-- Select Thana / Area --"}
-                      </option>
-                      {availableThanas.map((th) => (
-                        <option key={th} value={th}>
-                          {th}
-                        </option>
-                      ))}
-                    </select>
-                    {thanaError && (
-                      <p className="text-[11px] text-rose-500 mt-1">{thanaError}</p>
-                    )}
-                  </div>
-                </div>
+                      if (field.key === "phone") {
+                        return (
+                          <div key={field.id || field.key || fIdx} className={colSpanClass}>
+                            <label htmlFor="checkout-phone" className="block text-xs font-bold text-neutral-700 mb-1.5">
+                              {field.label || "Mobile Number"} {isReq && <span className="text-rose-500" aria-hidden="true">*</span>}
+                            </label>
+                            <div className={`flex rounded-xl border ${phoneError ? "border-rose-500 bg-rose-50/20" : "border-neutral-300 focus-within:border-emerald-600 focus-within:ring-2 focus-within:ring-emerald-600/20"} bg-white overflow-hidden transition-all`}>
+                              <input
+                                id="checkout-phone"
+                                name="phone"
+                                type="tel"
+                                inputMode="tel"
+                                autoComplete="tel"
+                                required={isReq}
+                                aria-invalid={Boolean(phoneError) || undefined}
+                                value={phone}
+                                onChange={(e) => {
+                                  setPhone(e.target.value);
+                                  if (phoneError) setPhoneError("");
+                                }}
+                                placeholder={field.placeholder ?? ""}
+                                className="w-full px-4 py-3 text-sm text-neutral-900 placeholder:text-neutral-400 outline-none bg-transparent"
+                              />
+                            </div>
+                            {phoneError ? (
+                              <p className="text-[11px] text-rose-500 mt-1" role="alert">{phoneError}</p>
+                            ) : field.helperText ? (
+                              <p className="text-[11px] text-neutral-500 mt-1">{field.helperText}</p>
+                            ) : null}
+                          </div>
+                        );
+                      }
 
-                <div>
-                  <label className="block text-xs font-bold text-neutral-700 mb-1.5">
-                    {"Full Address"} <span className="text-rose-500">*</span>
-                  </label>
-                  <textarea
-                    name="address"
-                    required
-                    value={fullAddress}
-                    onChange={(e) => {
-                      setFullAddress(e.target.value);
-                      if (addressError) setAddressError("");
-                    }}
-                    rows="3"
-                    placeholder={"House #, Road #, Area, Thana and District..."}
-                    className={`w-full px-4 py-3 rounded-xl border ${addressError ? "border-rose-500 bg-rose-50/20" : "border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"} text-sm outline-none transition-all`}
-                  />
-                  {addressError && (
-                    <p className="text-[11px] text-rose-500 mt-1">{addressError}</p>
-                  )}
+                      if (field.key === "district" || field.type === "district_select") {
+                        return (
+                          <div key={field.id || field.key || fIdx} className={colSpanClass}>
+                            <label htmlFor="checkout-district" className="block text-xs font-bold text-neutral-700 mb-1.5">
+                              {field.label || "District"} {isReq && <span className="text-rose-500" aria-hidden="true">*</span>}
+                            </label>
+                            <select
+                              id="checkout-district"
+                              name="district"
+                              autoComplete="address-level1"
+                              required={isReq}
+                              value={district}
+                              onChange={(e) => handleDistrictChange(e.target.value)}
+                              className="w-full px-3.5 py-3 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 text-sm outline-none transition-all bg-white font-medium cursor-pointer"
+                            >
+                              {BANGLADESH_DISTRICTS.map((d) => (
+                                <option key={d} value={d}>
+                                  {d} {d === "Dhaka" ? "(৳70)" : ["Gazipur", "Narayanganj", "Munshiganj", "Manikganj", "Narsingdi"].includes(d) ? "(৳100)" : "(৳130)"}
+                                </option>
+                              ))}
+                            </select>
+                            {field.helperText && (
+                              <p className="text-[11px] text-neutral-500 mt-1">{field.helperText}</p>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      if (field.key === "thana" || field.type === "thana_select") {
+                        return (
+                          <div key={field.id || field.key || fIdx} className={colSpanClass}>
+                            <label htmlFor="checkout-thana" className="block text-xs font-bold text-neutral-700 mb-1.5">
+                              {field.label || "Select Thana / Area"} {isReq && <span className="text-rose-500" aria-hidden="true">*</span>}
+                            </label>
+                            <select
+                              id="checkout-thana"
+                              name="thana"
+                              autoComplete="address-level2"
+                              required={isReq}
+                              aria-invalid={Boolean(thanaError) || undefined}
+                              value={thana}
+                              onChange={(e) => {
+                                setThana(e.target.value);
+                                if (thanaError) setThanaError("");
+                              }}
+                              className={`w-full px-3.5 py-3 rounded-xl border ${thanaError ? "border-rose-500 bg-rose-50/20" : "border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"} text-sm outline-none transition-all bg-white font-medium cursor-pointer`}
+                            >
+                              <option value="">
+                                {field.placeholder || "-- Select Thana / Area --"}
+                              </option>
+                              {availableThanas.map((th) => (
+                                <option key={th} value={th}>
+                                  {th}
+                                </option>
+                              ))}
+                            </select>
+                            {thanaError ? (
+                              <p className="text-[11px] text-rose-500 mt-1" role="alert">{thanaError}</p>
+                            ) : field.helperText ? (
+                              <p className="text-[11px] text-neutral-500 mt-1">{field.helperText}</p>
+                            ) : null}
+                          </div>
+                        );
+                      }
+
+                      if (field.key === "full_address") {
+                        return (
+                          <div key={field.id || field.key || fIdx} className={colSpanClass}>
+                            <label htmlFor="checkout-full-address" className="block text-xs font-bold text-neutral-700 mb-1.5">
+                              {field.label || "Full Address"} {isReq && <span className="text-rose-500" aria-hidden="true">*</span>}
+                            </label>
+                            <textarea
+                              id="checkout-full-address"
+                              name="address"
+                              autoComplete="street-address"
+                              required={isReq}
+                              aria-invalid={Boolean(addressError) || undefined}
+                              value={fullAddress}
+                              onChange={(e) => {
+                                setFullAddress(e.target.value);
+                                if (addressError) setAddressError("");
+                              }}
+                              rows="3"
+                              placeholder={field.placeholder ?? ""}
+                              className={`w-full px-4 py-3 rounded-xl border ${addressError ? "border-rose-500 bg-rose-50/20" : "border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"} text-sm outline-none transition-all`}
+                            />
+                            {addressError ? (
+                              <p className="text-[11px] text-rose-500 mt-1" role="alert">{addressError}</p>
+                            ) : field.helperText ? (
+                              <p className="text-[11px] text-neutral-500 mt-1">{field.helperText}</p>
+                            ) : null}
+                          </div>
+                        );
+                      }
+
+                      // Custom Admin-Added Form Fields
+                      const fKey = field.key || field.id;
+                      const inputId = `checkout-custom-${fKey}`;
+                      const curVal =
+                        customFieldValues[fKey] !== undefined
+                          ? customFieldValues[fKey]
+                          : (field.defaultValue ?? "");
+                      const curErr = customFieldErrors[fKey];
+                      const handleCustomChange = (val) => {
+                        setCustomFieldValues((prev) => ({ ...prev, [fKey]: val }));
+                        if (curErr) {
+                          setCustomFieldErrors((prev) => {
+                            const copy = { ...prev };
+                            delete copy[fKey];
+                            return copy;
+                          });
+                        }
+                      };
+
+                      if (field.type === "checkbox") {
+                        return (
+                          <div key={fKey} className={colSpanClass}>
+                            <div className="flex items-start gap-2.5 p-3 rounded-xl border border-neutral-200 bg-neutral-50/60">
+                              <input
+                                id={inputId}
+                                name={fKey}
+                                type="checkbox"
+                                checked={Boolean(curVal)}
+                                required={Boolean(field.required)}
+                                aria-invalid={Boolean(curErr) || undefined}
+                                onChange={(e) => handleCustomChange(e.target.checked)}
+                                className="w-4 h-4 mt-0.5 accent-emerald-600 rounded cursor-pointer"
+                              />
+                              <label htmlFor={inputId} className="text-xs font-bold text-neutral-800 cursor-pointer">
+                                {field.label} {Boolean(field.required) && <span className="text-rose-500" aria-hidden="true">*</span>}
+                              </label>
+                            </div>
+                            {curErr ? (
+                              <p className="text-[11px] text-rose-500 mt-1" role="alert">{curErr}</p>
+                            ) : field.helperText ? (
+                              <p className="text-[11px] text-neutral-500 mt-1">{field.helperText}</p>
+                            ) : null}
+                          </div>
+                        );
+                      }
+
+                      if (field.type === "radio") {
+                        const opts = Array.isArray(field.options) ? field.options : [];
+                        return (
+                          <fieldset key={fKey} className={colSpanClass}>
+                            <legend className="block text-xs font-bold text-neutral-700 mb-1.5">
+                              {field.label} {Boolean(field.required) && <span className="text-rose-500" aria-hidden="true">*</span>}
+                            </legend>
+                            <div className="flex flex-wrap gap-2">
+                              {opts.map((opt, oIdx) => {
+                                const rId = `${inputId}-${oIdx}`;
+                                return (
+                                  <label
+                                    key={rId}
+                                    htmlFor={rId}
+                                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50 text-xs font-medium cursor-pointer"
+                                  >
+                                    <input
+                                      id={rId}
+                                      name={fKey}
+                                      type="radio"
+                                      value={opt}
+                                      checked={String(curVal) === String(opt)}
+                                      onChange={(e) => handleCustomChange(e.target.value)}
+                                      className="accent-emerald-600 cursor-pointer"
+                                    />
+                                    <span>{opt}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                            {curErr ? (
+                              <p className="text-[11px] text-rose-500 mt-1" role="alert">{curErr}</p>
+                            ) : field.helperText ? (
+                              <p className="text-[11px] text-neutral-500 mt-1">{field.helperText}</p>
+                            ) : null}
+                          </fieldset>
+                        );
+                      }
+
+                      return (
+                        <div key={fKey} className={colSpanClass}>
+                          <label htmlFor={inputId} className="block text-xs font-bold text-neutral-700 mb-1.5">
+                            {field.label} {Boolean(field.required) && <span className="text-rose-500" aria-hidden="true">*</span>}
+                          </label>
+                          {field.type === "textarea" ? (
+                            <textarea
+                              id={inputId}
+                              name={fKey}
+                              rows="3"
+                              required={Boolean(field.required)}
+                              aria-invalid={Boolean(curErr) || undefined}
+                              value={curVal}
+                              onChange={(e) => handleCustomChange(e.target.value)}
+                              placeholder={field.placeholder ?? ""}
+                              className={`w-full px-4 py-3 rounded-xl border ${curErr ? "border-rose-500 bg-rose-50/20" : "border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"} text-sm outline-none transition-all`}
+                            />
+                          ) : field.type === "select" ? (
+                            <select
+                              id={inputId}
+                              name={fKey}
+                              required={Boolean(field.required)}
+                              aria-invalid={Boolean(curErr) || undefined}
+                              value={curVal}
+                              onChange={(e) => handleCustomChange(e.target.value)}
+                              className={`w-full px-3.5 py-3 rounded-xl border ${curErr ? "border-rose-500 bg-rose-50/20" : "border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"} text-sm outline-none transition-all bg-white font-medium cursor-pointer`}
+                            >
+                              <option value="">{field.placeholder || `-- Select ${field.label} --`}</option>
+                              {(Array.isArray(field.options) ? field.options : []).map((opt, oIdx) => (
+                                <option key={oIdx} value={opt}>
+                                  {opt}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              id={inputId}
+                              name={fKey}
+                              type={field.type || "text"}
+                              inputMode={field.type === "tel" ? "tel" : field.type === "number" ? "numeric" : undefined}
+                              required={Boolean(field.required)}
+                              aria-invalid={Boolean(curErr) || undefined}
+                              value={curVal}
+                              onChange={(e) => handleCustomChange(e.target.value)}
+                              placeholder={field.placeholder ?? ""}
+                              className={`w-full px-4 py-3 rounded-xl border ${curErr ? "border-rose-500 bg-rose-50/20" : "border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20"} text-sm outline-none transition-all`}
+                            />
+                          )}
+                          {curErr ? (
+                            <p className="text-[11px] text-rose-500 mt-1" role="alert">{curErr}</p>
+                          ) : field.helperText ? (
+                            <p className="text-[11px] text-neutral-500 mt-1">{field.helperText}</p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                 </div>
 
                 {/* Quantity Controller */}
@@ -2075,7 +2404,7 @@ export function CampaignLandingPage({
                 className="lg:col-span-5 bg-white rounded-3xl border border-neutral-200 p-6 sm:p-8 shadow-md lg:sticky lg:top-24 space-y-4"
               >
                 <h3 className="text-lg font-bold text-neutral-900 border-b border-neutral-100 pb-3">
-                  Order Summary
+                  {prodEditorial.checkoutSummaryHeading || "Order Summary"}
                 </h3>
 
                 <div className="flex gap-4 items-center">
@@ -2170,23 +2499,23 @@ export function CampaignLandingPage({
                   </div>
                 </div>
 
-                {/* Trust Badges */}
-                <div className="bg-slate-50 rounded-2xl p-4 space-y-2 text-xs text-neutral-600 border border-neutral-100">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>100% Secure & Verified Order</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Truck className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Fast Nationwide Home Delivery</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <RotateCcw className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>7 Days Replacement Warranty</span>
-                  </div>
-                </div>
+                {/* Dynamic Shared Trust Badges (Synced with Product Editorial & Quick-View Modal) */}
+                {prodEditorial.showTrustBadgesBox !== false && (() => {
+                  const activeBadges = (prodEditorial.trustBadges || []).filter((b) => b && b.enabled !== false && b.text);
+                  if (activeBadges.length === 0) return null;
+                  return (
+                    <div className="bg-slate-50 rounded-2xl p-4 space-y-2 text-xs text-neutral-600 border border-neutral-100">
+                      {activeBadges.map((badge, bIdx) => (
+                        <div key={badge.id || bIdx} className="flex items-center gap-2">
+                          {renderTrustBadgeIcon(badge.icon, badge.color, "w-4 h-4")}
+                          <span>{badge.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
 
-                {/* Confirm Order Button - Positioned DIRECTLY under the 3 trust badges without blank gap */}
+                {/* Confirm Order Button - Positioned DIRECTLY under the trust badges without blank gap */}
                 <div className="pt-2 space-y-2">
                   {isOutOfStock && (
                     <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold flex items-center gap-2">
@@ -2211,11 +2540,13 @@ export function CampaignLandingPage({
                       }`}
                   >
                     <Lock className="w-5 h-5" />
-                    <span>{isOutOfStock ? ("Out of Stock") : `${"Confirm Order - ৳"}${total.toLocaleString()}`}</span>
+                    <span>{isOutOfStock ? ("Out of Stock") : `${prodEditorial.checkoutSubmitBtnText || "Confirm Order"} - ৳${total.toLocaleString()}`}</span>
                   </button>
-                  <p className="text-center text-[10px] text-neutral-400">
-                    {"By confirming, you agree to our terms and conditions."}
-                  </p>
+                  {prodEditorial.checkoutTermsText && (
+                    <p className="text-center text-[10px] text-neutral-400">
+                      {prodEditorial.checkoutTermsText}
+                    </p>
+                  )}
                 </div>
               </div>
             </form>
