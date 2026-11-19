@@ -1,0 +1,4 @@
+/* Custom animations and scroll styles for AmarDokan */
+html {
+  scroll-behavior: smooth;
+}

@@ -1,0 +1,16 @@
+node_modules/
+build/
+# dist/ tracked for cPanel Git deployment
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+backend/venv/
+scratch/
+
