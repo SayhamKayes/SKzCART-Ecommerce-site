@@ -18,7 +18,8 @@ import {
   Palette,
   GalleryHorizontal,
   Images,
-  Trash2
+  Trash2,
+  FileText
 } from "lucide-react";
 import { useThemeConfig } from "../frontPanel/FrontPanelContext";
 
@@ -33,6 +34,7 @@ export const ROLE_PERMISSIONS = {
     "orders",
     "products",
     "campaignProducts",
+    "productEditorial",
     "couriers",
     "payments",
     "marketing",
@@ -130,6 +132,11 @@ const AdminSidebar = ({
       id: "campaignProducts",
       label: "Special Campaign Products",
       icon: Zap
+    },
+    {
+      id: "productEditorial",
+      label: "Product Editorial",
+      icon: FileText
     },
     {
       id: "couriers",
