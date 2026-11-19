@@ -18,6 +18,7 @@ import {
   Sparkles,
   Tag,
   Flame,
+  Clock,
   Truck,
   ArrowRight,
   Check,
@@ -856,7 +857,11 @@ export const ShopPage = ({
                             className={`absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center shadow-xs ${tagInfo.color}`}
                             title={tagInfo.label}
                           >
-                            <Zap className="w-3 h-3 text-white fill-white" />
+                            {tagInfo.icon === 'zap' && <Zap className="w-3 h-3 text-white fill-white" />}
+                            {tagInfo.icon === 'sparkles' && <Sparkles className="w-3 h-3 text-white fill-white" />}
+                            {tagInfo.icon === 'tag' && <Tag className="w-3 h-3 text-white" />}
+                            {tagInfo.icon === 'flame' && <Flame className="w-3 h-3 text-white fill-white" />}
+                            {tagInfo.icon === 'clock' && <Clock className="w-3 h-3 text-white" />}
                           </span>
                         )}
                       </div>
