@@ -34,6 +34,7 @@ import { useThemeConfig } from "../frontPanel/FrontPanelContext";
 import { Campaign_Header, Product_Header } from "../Header";
 import { Footer } from "../Footer";
 import { getProductCampaignInfo } from "../../utils/campaignHelper";
+import { getProductTagInfo, hasLimitedOfferBadge } from "../../utils/productTags";
 import { getLocalizedProductName } from "../../utils/translations";
 import { buildBgStyle } from "../../utils/themeHelper";
 import codImg from "../../assets/COD.png";
@@ -58,6 +59,8 @@ export function CampaignLandingPage({
   const { isEnglish, t } = useLanguage();
   const { themeConfig } = useThemeConfig();
   const product = productProp || {};
+  const productTagInfo = getProductTagInfo(product);
+  const isLimitedOfferProduct = hasLimitedOfferBadge(product);
 
   // Check if THIS specific product is in an active campaign
   const campaignInfo = useMemo(() => {
@@ -778,7 +781,7 @@ export function CampaignLandingPage({
                       className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-900 font-bold text-xs"
                     >
                       <Sparkles className="w-3.5 h-3.5" style={{ color: pp.badgeText || undefined }} />
-                      <span>{isCampaign ? (campaignConfig?.badgeText || product.badge || "Hot Selling Product") : (product.badge || "Original Product")}</span>
+                      <span>{isCampaign ? (campaignConfig?.badgeText || productTagInfo?.label || product.badge || "Hot Selling Product") : (productTagInfo?.label || product.badge || "Original Product")}</span>
                     </span>
                     {product.category && (
                       <span className="text-xs text-neutral-500 font-semibold uppercase tracking-wider">
@@ -921,7 +924,7 @@ export function CampaignLandingPage({
                         backgroundColor: pp.primaryBtnBg || undefined,
                         color: pp.primaryBtnText || undefined,
                       }}
-                      className="py-3.5 px-7 rounded-xl bg-orange-500 hover:bg-orange-600 active:scale-95 text-white font-extrabold text-sm sm:text-base flex items-center gap-2 shadow-lg shadow-orange-500/25 transition-all cursor-pointer"
+                      className="py-3.5 px-7 rounded-xl bg-orange-500 hover:bg-orange-600 active:scale-95 text-white font-extrabold text-sm sm:text-base flex items-center gap-2 shadow-lg shadow-neutral-950/25 transition-all cursor-pointer"
                     >
                       <ShoppingBag className="w-4 h-4" />
                       <span>{product.cta?.primary || "Order Now"} →</span>
@@ -975,7 +978,7 @@ export function CampaignLandingPage({
 
                     {/* Badges on image */}
                     <span className="absolute top-3 left-3 bg-emerald-800 text-white text-[11px] font-bold px-2.5 py-1 rounded-full shadow-md pointer-events-none">
-                      {product.badge || "Special Offer"}
+                      {productTagInfo?.label || product.badge || "Special Offer"}
                     </span>
                     {discountAmount > 0 && (
                       <span className="absolute top-3 right-3 bg-rose-600 text-white text-[11px] font-black px-2.5 py-1 rounded-full shadow-md pointer-events-none">
@@ -1502,7 +1505,8 @@ export function CampaignLandingPage({
             </section>
           )}
 
-          {/* 10. SPECIAL OFFER CTA BANNER */}
+          {/* 10. SPECIAL OFFER CTA BANNER (Shown dynamically when product has Limited Offer badge) */}
+          {isLimitedOfferProduct && (
           <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div
               style={{
@@ -1540,12 +1544,13 @@ export function CampaignLandingPage({
                   backgroundColor: pp.primaryBtnBg || undefined,
                   color: pp.primaryBtnText || undefined,
                 }}
-                className="py-3.5 px-8 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-extrabold text-base shadow-xl hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                className="py-3.5 px-8 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-extrabold text-base shadow-xl shadow-neutral-950/30 hover:scale-105 active:scale-95 transition-all cursor-pointer"
               >
                 Order Now →
               </button>
             </div>
           </section>
+          )}
 
           {/* 11. CHECKOUT SECTION */}
           <section id="checkout-section" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 scroll-mt-20">
@@ -2202,7 +2207,7 @@ export function CampaignLandingPage({
                     }
                     className={`w-full py-4 px-6 rounded-xl font-black text-base transition-all flex items-center justify-center gap-2 ${isOutOfStock
                       ? "bg-neutral-200 text-neutral-400 border border-neutral-300 cursor-not-allowed select-none"
-                      : "bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white shadow-lg shadow-emerald-700/30 cursor-pointer"
+                      : "bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white shadow-lg shadow-neutral-950/25 cursor-pointer"
                       }`}
                   >
                     <Lock className="w-5 h-5" />
@@ -2252,7 +2257,7 @@ export function CampaignLandingPage({
             onClick={scrollToCheckout}
             className={`min-h-[46px] py-2.5 px-5 rounded-xl font-extrabold text-xs shrink-0 flex items-center gap-1.5 ${isOutOfStock
               ? "bg-neutral-200 text-neutral-400 cursor-not-allowed border border-neutral-300 select-none"
-              : "bg-orange-500 hover:bg-orange-600 active:scale-95 text-white shadow-md shadow-orange-500/30 cursor-pointer"
+              : "bg-orange-500 hover:bg-orange-600 active:scale-95 text-white shadow-md shadow-neutral-950/25 cursor-pointer"
               }`}
           >
             <ShoppingBag className="w-4 h-4" />
