@@ -13,4 +13,4 @@ __pycache__/
 venv/
 backend/venv/
 scratch/
-
+dist/
