@@ -81,73 +81,8 @@ export const ProductPageCustomizer = ({ config, onChange }) => {
         </div>
 
         {productPage.showGuaranteeBox && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-neutral-800/60">
-            <div>
-              <label className="block text-neutral-300 font-semibold mb-1">Guarantee Title</label>
-              <input
-                type="text"
-                value={sanitizeText(productPage.guaranteeTitle) || ""}
-                onChange={(e) => handleUpdate("guaranteeTitle", e.target.value)}
-                placeholder="100% Original & Authentic Product"
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-            <div>
-              <label className="block text-neutral-300 font-semibold mb-1">Return Subtitle</label>
-              <input
-                type="text"
-                value={sanitizeText(productPage.guaranteeSub) || ""}
-                onChange={(e) => handleUpdate("guaranteeSub", e.target.value)}
-                placeholder="7-Day Easy Return & Replacement Guarantee"
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Delivery Estimates */}
-      <div className="bg-neutral-900 p-5 rounded-2xl border border-neutral-800 space-y-4 text-xs">
-        <div className="flex items-center justify-between">
-          <div>
-            <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-              <Truck className="w-3.5 h-3.5 text-blue-400" />
-              <span>Delivery Timeline Notice</span>
-            </h4>
-            <p className="text-[11px] text-neutral-400 mt-0.5">
-              Expected delivery time inside and outside Dhaka
-            </p>
-          </div>
-          <input
-            type="checkbox"
-            checked={productPage.showDeliveryEstimate ?? true}
-            onChange={(e) => handleUpdate("showDeliveryEstimate", e.target.checked)}
-            className="w-5 h-5 accent-emerald-500 cursor-pointer"
-          />
-        </div>
-
-        {productPage.showDeliveryEstimate && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-neutral-800/60">
-            <div>
-              <label className="block text-neutral-300 font-semibold mb-1">Inside Dhaka Delivery Time</label>
-              <input
-                type="text"
-                value={sanitizeText(productPage.deliveryDhaka) || ""}
-                onChange={(e) => handleUpdate("deliveryDhaka", e.target.value)}
-                placeholder="e.g. 24 Hours"
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-            <div>
-              <label className="block text-neutral-300 font-semibold mb-1">Outside Dhaka Delivery Time</label>
-              <input
-                type="text"
-                value={sanitizeText(productPage.deliveryOutside) || ""}
-                onChange={(e) => handleUpdate("deliveryOutside", e.target.value)}
-                placeholder="e.g. 48-72 Hours"
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-emerald-500"
-              />
-            </div>
+          <div className="pt-2 border-t border-neutral-800/60 text-[11px] text-emerald-300/90">
+            Trust &amp; Guarantee badge icons and text are managed dynamically from <strong>Admin Panel → Product Editorial → Summary &amp; Quick-View Badges</strong>.
           </div>
         )}
       </div>
