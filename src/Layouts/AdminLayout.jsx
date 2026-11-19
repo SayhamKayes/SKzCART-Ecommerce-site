@@ -13,6 +13,7 @@ const TAB_TITLES = {
   orders: 'Order Management',
   products: 'Products & Inventory',
   campaignProducts: 'Special Campaign Products',
+  productEditorial: 'Product Editorial',
   couriers: 'Courier Integration Hub',
   payments: 'Payments & Gateways',
   marketing: 'Marketing & CAPI Tracking',
