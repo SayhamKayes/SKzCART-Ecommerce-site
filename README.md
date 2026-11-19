@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎨 SketchGuard — Frontend Application
+# SKzCART | E-commerce Frontend App
 ### **Single Page Storefront, Campaign Funnel & Operations Command Center**
 
 [![React](https://img.shields.io/badge/React_19.0-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://react.dev/)
