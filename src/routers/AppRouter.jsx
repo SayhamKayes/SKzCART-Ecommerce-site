@@ -33,6 +33,7 @@ const AdminMediaLibrary = lazy(() => import('../components/admin/AdminMediaLibra
 const AdminCustomerReviews = lazy(() => import('../components/admin/AdminCustomerReviews').then(m => ({ default: m.AdminCustomerReviews || m.default })));
 const AdminStaffManagement = lazy(() => import('../components/admin/AdminStaffManagement').then(m => ({ default: m.AdminStaffManagement || m.default })));
 const AdminRecycleBin = lazy(() => import('../components/admin/AdminRecycleBin').then(m => ({ default: m.AdminRecycleBin || m.default })));
+const AdminProductEditorial = lazy(() => import('../components/admin/AdminProductEditorial').then(m => ({ default: m.AdminProductEditorial || m.default })));
 
 const RouteLoadingSpinner = () => (
   <div className="min-h-[60vh] flex flex-col items-center justify-center p-8 text-center">
@@ -421,6 +422,7 @@ export const AppRouter = ({
               onNavigateToView={navigateToView}
             />
           )}
+          {adminTab === 'productEditorial' && <AdminProductEditorial />}
           {adminTab === 'couriers' && (
             <AdminCouriers
               orders={orders}
