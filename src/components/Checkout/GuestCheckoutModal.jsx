@@ -124,12 +124,24 @@ const GuestCheckoutModal = ({
 
   useEffect(() => {
     let isMounted = true;
-    apiClient.getPaymentMethods().then((methods) => {
-      if (isMounted && Array.isArray(methods) && methods.length > 0) {
-        setPaymentConfigs(methods);
+    const loadMethods = () => {
+      apiClient.getPaymentMethods().then((methods) => {
+        if (isMounted && Array.isArray(methods) && methods.length > 0) {
+          setPaymentConfigs(methods);
+        }
+      }).catch(() => {});
+    };
+    loadMethods();
+    const unsubscribe = realtimeService.subscribe((msg) => {
+      const type = typeof msg === "string" ? msg : msg?.type;
+      if (type === "PAYMENT_METHODS_UPDATED" || type === "PAYMENT_CONFIG_UPDATED") {
+        loadMethods();
       }
-    }).catch(() => {});
-    return () => { isMounted = false; };
+    });
+    return () => {
+      isMounted = false;
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
   }, []);
 
   const isMethodActive = (methodKey) => {
@@ -312,6 +324,44 @@ const GuestCheckoutModal = ({
         },
       };
 
+      // For SSLCommerz: initiate gateway session FIRST without creating an Order until payment succeeds
+      if (paymentMethod === "SSLCOMMERZ") {
+        try {
+          const customerEmail = email.trim() || `${normalizedPhone}@customer.amardokan.com`;
+          const payInit = await apiClient.initiatePayment({
+            ...orderPayload,
+            amount: totalPayable,
+            customerData: {
+              customerName: customerName.trim(),
+              phone: normalizedPhone,
+              email: customerEmail,
+              fullAddress: fullAddress.trim(),
+              district,
+            },
+          });
+
+          if (payInit && payInit.success && payInit.gatewayUrl) {
+            window.location.href = payInit.gatewayUrl;
+            return;
+          } else {
+            setErrorModal({
+              title: "Payment Gateway Error",
+              message:
+                payInit?.message ||
+                "Could not connect to SSLCommerz. Order was not placed.",
+            });
+            return;
+          }
+        } catch (initErr) {
+          console.error("SSLCommerz initiation error:", initErr);
+          setErrorModal({
+            title: "Payment Gateway Error",
+            message: "Failed to initiate SSLCommerz payment session. Order was not placed.",
+          });
+          return;
+        }
+      }
+
       const result = await apiClient.checkout(orderPayload);
 
       if (result && result.success && result.order) {
@@ -359,44 +409,6 @@ const GuestCheckoutModal = ({
           localStorage.removeItem("amardokan_cart");
           localStorage.setItem("amardokan_cart", "[]");
         } catch { }
-
-        // If SSLCommerz, initiate gateway payment session and redirect
-        if (paymentMethod === "SSLCOMMERZ") {
-          try {
-            const payInit = await apiClient.initiatePayment({
-              orderId: result.order.id,
-              amount: result.order.total || totalPayable,
-              customerData: {
-                customerName: customerName.trim(),
-                phone: normalizedPhone,
-                email: customerEmail,
-                fullAddress: fullAddress.trim(),
-                district,
-              }
-            });
-
-            if (payInit && payInit.success && payInit.gatewayUrl) {
-              // Redirect directly without showing confirmation popup or playing chime before actual payment
-              window.location.href = payInit.gatewayUrl;
-              return;
-            } else {
-              setErrorModal({
-                title: "Payment Gateway Error",
-                message:
-                  payInit?.message ||
-                  ("Could not connect to SSLCommerz. Please try again."),
-              });
-              return;
-            }
-          } catch (initErr) {
-            console.error("SSLCommerz initiation error:", initErr);
-            setErrorModal({
-              title: "Payment Gateway Error",
-              message: "Failed to initiate SSLCommerz payment session.",
-            });
-            return;
-          }
-        }
 
         realtimeService.broadcast("ORDER_CREATED", result.order);
         onOrderSuccess(result.order, !currentUser ? autoAccount : undefined);
