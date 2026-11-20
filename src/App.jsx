@@ -62,9 +62,29 @@ export default function App() {
     return sessionStorage.getItem('amardokan_admin_role') || 'ADMIN';
   });
   const [adminTab, setAdminTab] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam) return tabParam;
+      if (params.get('code') && params.get('state')) return 'adCampaigns';
+    }
     const savedRole = sessionStorage.getItem('amardokan_admin_role');
     return savedRole === 'DISPATCHER' ? 'orders' : 'overview';
   });
+
+  // Forward Facebook OAuth code back to opener popup immediately when returning in OAuth window
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    if (code && state && window.opener && window.opener !== window) {
+      try {
+        window.opener.postMessage({ type: 'META_OAUTH_CODE', code, state }, window.location.origin);
+        window.close();
+      } catch {}
+    }
+  }, []);
 
 
   // Core Data States - Pure Backend First (Cached in localStorage for instant rendering without mock data)
@@ -304,32 +324,32 @@ export default function App() {
       }
       window.history.replaceState({}, document.title, window.location.pathname);
 
+      if (paymentStatus === 'failed') {
+        setPaymentAlertModal({
+          type: 'error',
+          title: 'SSLCommerz Online Payment Failed',
+          message: `Payment gateway transaction could not be completed. Reason: ${reason || 'Payment failed'}. No order was placed — please try again.`,
+        });
+      } else if (paymentStatus === 'cancelled') {
+        setPaymentAlertModal({
+          type: 'warning',
+          title: 'Payment Cancelled',
+          message: 'You cancelled the SSLCommerz payment window. No order was placed.',
+        });
+      }
+
       apiClient.getOrders().then((allOrders) => {
         if (Array.isArray(allOrders) && allOrders.length > 0) {
           setOrders(allOrders);
           const found = allOrders.find((o) => o.id === orderId);
-          if (found) {
-            if (paymentStatus === 'success') {
-              setConfirmedOrder(found);
-              setCartItems([]);
-              try {
-                localStorage.removeItem('amardokan_cart');
-                localStorage.setItem('amardokan_cart', '[]');
-              } catch {}
-              realtimeService.playChime('order');
-            } else if (paymentStatus === 'failed') {
-              setPaymentAlertModal({
-                type: 'error',
-                title: 'SSLCommerz Online Payment Failed',
-                message: `Payment gateway transaction could not be confirmed. Reason: ${reason || 'Payment failed'}. You can check your order status or try again.`,
-              });
-            } else if (paymentStatus === 'cancelled') {
-              setPaymentAlertModal({
-                type: 'warning',
-                title: 'Payment Cancelled',
-                message: 'You cancelled the SSLCommerz payment window. The order remains saved as pending.',
-              });
-            }
+          if (found && paymentStatus === 'success') {
+            setConfirmedOrder(found);
+            setCartItems([]);
+            try {
+              localStorage.removeItem('amardokan_cart');
+              localStorage.setItem('amardokan_cart', '[]');
+            } catch {}
+            realtimeService.playChime('order');
           }
         }
       });
@@ -762,7 +782,21 @@ export default function App() {
         setSelectedCategory={setSelectedCategory}
         handleAddToCart={handleAddToCart}
         handleQuickBuy={handleQuickBuy}
-        setSelectedProduct={setSelectedProduct}
+        setSelectedProduct={(product) => {
+          if (product?.id) {
+            marketingTracker.track(
+              'ProductClick',
+              {
+                productId: product.id,
+                name: product.name,
+                value: product.price,
+                source: 'storefront_card',
+              },
+              { productId: product.id }
+            );
+          }
+          setSelectedProduct(product);
+        }}
         handleOrderSuccess={handleOrderSuccess}
         initialTrackData={initialTrackData}
         currentUser={currentUser}
