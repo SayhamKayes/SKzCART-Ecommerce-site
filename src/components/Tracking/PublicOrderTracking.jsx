@@ -19,6 +19,7 @@ import { DEFAULT_PRODUCT_PLACEHOLDER, handleProductImageError } from "../../util
 
 const getOrderStages = () => [
   { status: "PENDING", label: "Order Placed", icon: "📝" },
+  { status: "PAYMENT_VERIFIED", label: "Payment Verified", icon: "🛡️" },
   { status: "CONFIRMED", label: "Confirmed", icon: "✅" },
   { status: "COURIER_CREATED", label: "Courier Booked", icon: "📦" },
   { status: "PICKED_UP", label: "Picked Up", icon: "🛵" },
@@ -27,10 +28,30 @@ const getOrderStages = () => [
   { status: "DELIVERED", label: "Delivered", icon: "🎉" }
 ];
 
-const getStatusLabel = (status) => {
+const isOrderPaymentVerified = (order) => {
+  if (!order) return false;
+  return (
+    order.address?.verificationStatus === "VERIFIED" ||
+    String(order.paymentStatus || "").toUpperCase() === "PAID"
+  );
+};
+
+const isOrderPaymentFailed = (order) => {
+  if (!order) return false;
+  return (
+    order.address?.verificationStatus === "NOT_VERIFIED" ||
+    String(order.paymentStatus || "").toUpperCase() === "FAILED"
+  );
+};
+
+const getStatusLabel = (status, order = null) => {
   switch (status) {
     case "PENDING":
+      if (isOrderPaymentFailed(order)) return "Payment Not Verified";
+      if (isOrderPaymentVerified(order)) return "Payment Verified";
       return "Pending";
+    case "PAYMENT_VERIFIED":
+      return "Payment Verified";
     case "CONFIRMED":
       return "Confirmed";
     case "COURIER_CREATED":
@@ -102,6 +123,9 @@ const PublicOrderTracking = ({
               note: "Order processing & live tracking initiated"
             }
           ],
+      subtotal: local.subtotal,
+      deliveryFee: local.deliveryFee,
+      discount: local.discount,
       total: local.total || 0,
       paymentMethod: local.paymentMethod || "COD",
       paymentStatus: local.paymentStatus || "UNPAID",
@@ -208,22 +232,26 @@ const PublicOrderTracking = ({
     executeTrack(orderIdInput, phoneInput);
   };
 
-  const getStageIndex = (status) => {
+  const getStageIndex = (orderOrStatus) => {
+    const status = typeof orderOrStatus === "string" ? orderOrStatus : orderOrStatus?.status;
+    const verified = typeof orderOrStatus === "object" && isOrderPaymentVerified(orderOrStatus);
     switch (status) {
       case "PENDING":
-        return 0;
-      case "CONFIRMED":
+        return verified ? 1 : 0;
+      case "PAYMENT_VERIFIED":
         return 1;
-      case "COURIER_CREATED":
+      case "CONFIRMED":
         return 2;
-      case "PICKED_UP":
+      case "COURIER_CREATED":
         return 3;
-      case "IN_TRANSIT":
+      case "PICKED_UP":
         return 4;
-      case "OUT_FOR_DELIVERY":
+      case "IN_TRANSIT":
         return 5;
-      case "DELIVERED":
+      case "OUT_FOR_DELIVERY":
         return 6;
+      case "DELIVERED":
+        return 7;
       default:
         return 0;
     }
@@ -305,7 +333,7 @@ const PublicOrderTracking = ({
                       Array.isArray(ord.items) && ord.items[0]?.name ? ` (${ord.items[0].name.slice(0, 24)}...)` : "";
                     return (
                       <option key={ord.id} value={ord.id}>
-                        #{ord.id} — {getStatusLabel(ord.status, isEnglish)} — {formatBDT(ord.total)}
+                        #{ord.id} — {getStatusLabel(ord.status, ord)} — {formatBDT(ord.total)}
                         {itemName}
                       </option>
                     );
@@ -398,25 +426,36 @@ const PublicOrderTracking = ({
                 </p>
               </div>
 
-              <div className="text-right">
+              <div className="text-right space-y-1">
                 <span className="text-xs text-neutral-400 block">
                   {"Current Status"}
                 </span>
-                <span className="inline-block mt-1 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800">
-                  {getStatusLabel(trackedOrder.status, isEnglish)}
+                <span
+                  className={`inline-block px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                    isOrderPaymentFailed(trackedOrder) && trackedOrder.status === "PENDING"
+                      ? "bg-rose-100 text-rose-800"
+                      : isOrderPaymentVerified(trackedOrder) && trackedOrder.status === "PENDING"
+                      ? "bg-blue-100 text-blue-800"
+                      : "bg-emerald-100 text-emerald-800"
+                  }`}
+                >
+                  {getStatusLabel(trackedOrder.status, trackedOrder)}
                 </span>
+                <div className="text-xs font-extrabold text-neutral-800 pt-0.5">
+                  {"Total: "}{formatBDT(trackedOrder.total || 0)}
+                </div>
               </div>
             </div>
 
-            {/* 7-Step Progress Timeline */}
+            {/* 8-Step Progress Timeline */}
             <div>
               <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400 mb-4">
                 {"Delivery Milestones:"}
               </h3>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
                 {stages.map((stg, idx) => {
-                  const currentIdx = getStageIndex(trackedOrder.status);
+                  const currentIdx = getStageIndex(trackedOrder);
                   const isDone = idx <= currentIdx;
                   const isCurrent = idx === currentIdx;
                   return (
@@ -492,22 +531,41 @@ const PublicOrderTracking = ({
                   </div>
 
                   <div>
-                    <span className="text-neutral-400 block text-[11px]">
-                      {"Cash on Delivery (COD)"}
-                    </span>
-                    <span className="font-bold text-amber-400">
-                      {formatBDT(trackedOrder.courier?.codAmount || trackedOrder.total)}
-                    </span>
+                    {String(trackedOrder.paymentStatus || "").toUpperCase() === "PAID" ||
+                    Number(trackedOrder.courier?.codAmount) === 0 ? (
+                      <>
+                        <span className="text-neutral-400 block text-[11px]">
+                          {"Payment Status"}
+                        </span>
+                        <span className="font-bold text-emerald-400">
+                          {`Paid (${trackedOrder.paymentMethod || "Online"})`}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-neutral-400 block text-[11px]">
+                          {"Cash on Delivery (COD)"}
+                        </span>
+                        <span className="font-bold text-amber-400">
+                          {formatBDT(trackedOrder.courier?.codAmount || trackedOrder.total)}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
 
-                {trackedOrder.courier?.assignedRiderName && (
+                {trackedOrder.courier?.assignedRiderName ? (
                   <div className="p-2.5 rounded-xl bg-neutral-800/80 border border-neutral-700 flex items-center justify-between text-xs">
                     <div className="flex items-center gap-2">
                       <User className="w-4 h-4 text-emerald-400" />
                       <span>
                         {"Delivery Rider: "}
                         <strong>{trackedOrder.courier.assignedRiderName}</strong>
+                        {trackedOrder.courier?.liveApi === false && (
+                          <span className="ml-1.5 text-[10px] text-amber-300 font-normal">
+                            {"(Sandbox Demo Agent)"}
+                          </span>
+                        )}
                       </span>
                     </div>
                     {trackedOrder.courier.assignedRiderPhone && (
@@ -520,7 +578,12 @@ const PublicOrderTracking = ({
                       </a>
                     )}
                   </div>
-                )}
+                ) : trackedOrder.courier?.liveApi ? (
+                  <div className="p-2.5 rounded-xl bg-neutral-800/80 border border-neutral-700 flex items-center gap-2 text-[11px] text-neutral-300">
+                    <User className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span>{"Delivery Rider details will appear once assigned by the courier hub."}</span>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-center gap-2">
@@ -537,37 +600,99 @@ const PublicOrderTracking = ({
                 {"Order Timeline & History:"}
               </h3>
               <div className="space-y-3 relative before:absolute before:left-3 before:top-2 before:bottom-2 before:w-0.5 before:bg-neutral-200">
-                {(Array.isArray(trackedOrder.statusHistory) && trackedOrder.statusHistory.length > 0
-                  ? trackedOrder.statusHistory
-                  : [
-                    {
-                      status: trackedOrder.status || "PENDING",
-                      timestamp: trackedOrder.createdAt || ("Today"),
-                      note: "Order processing and tracking active"
+                {(() => {
+                  const rawHistory =
+                    Array.isArray(trackedOrder.statusHistory) && trackedOrder.statusHistory.length > 0
+                      ? trackedOrder.statusHistory
+                      : [
+                          {
+                            status: trackedOrder.status || "PENDING",
+                            timestamp: trackedOrder.createdAt || "Today",
+                            note: "Order processing and tracking active",
+                          },
+                        ];
+
+                  const sanitizedItems = [];
+                  for (const item of rawHistory) {
+                    const noteStr = String(item?.note || "");
+                    const noteLower = noteStr.toLowerCase();
+                    const updatedByLower = String(item?.updatedBy || "").toLowerCase();
+                    const isVerifyEntry =
+                      item?.status === "PENDING" &&
+                      (noteLower.includes("validated") ||
+                        noteLower.includes("verified") ||
+                        noteLower.includes("verification") ||
+                        updatedByLower.includes("verification") ||
+                        updatedByLower.includes("sslcommerz"));
+                    const isNotVerifiedNote = noteLower.includes("not verified");
+
+                    let stepHeading = getStatusLabel(item?.status) || item?.status;
+                    let cleanNote = noteStr;
+
+                    if (isVerifyEntry) {
+                      stepHeading = isNotVerifiedNote ? "Payment Not Verified" : "Payment Verified";
+                      cleanNote = isNotVerifiedNote
+                        ? "Payment verification failed. Please contact support."
+                        : "Your payment has been verified and the order is ready for confirmation.";
+                    } else if (
+                      item?.status === "COURIER_CREATED" ||
+                      noteLower.includes("dispatched directly to")
+                    ) {
+                      stepHeading = getStatusLabel(item?.status) || "Courier Created";
+                      const dispatchMatch = noteStr.match(/Dispatched directly to ([^.,]+)/i);
+                      const providerName = dispatchMatch
+                        ? dispatchMatch[1].trim()
+                        : trackedOrder.courier?.provider || "Courier";
+                      cleanNote = `Dispatched directly to ${providerName}.`;
                     }
-                  ]
-                ).map((item, i) => (
-                  <div key={i} className="flex items-start gap-4 relative text-xs">
-                    <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-[10px] shrink-0 z-10 shadow-xs">
-                      ✓
-                    </div>
-                    <div className="flex-1 p-3 bg-neutral-50 rounded-xl border border-neutral-200">
-                      <div className="flex justify-between items-center mb-0.5">
-                        <span className="font-bold text-neutral-900">
-                          {getStatusLabel(item.status, isEnglish) || item.status}
-                        </span>
-                        <span className="text-[10px] text-neutral-400 font-mono">{formatBDTDateTime(item.timestamp, isEnglish)}</span>
+
+                    // Collapse duplicate consecutive Payment Verified entries
+                    const prevItem = sanitizedItems[sanitizedItems.length - 1];
+                    if (
+                      prevItem &&
+                      prevItem.stepHeading === stepHeading &&
+                      (stepHeading === "Payment Verified" || stepHeading === "Payment Not Verified")
+                    ) {
+                      sanitizedItems[sanitizedItems.length - 1] = {
+                        ...item,
+                        stepHeading,
+                        cleanNote,
+                      };
+                      continue;
+                    }
+
+                    sanitizedItems.push({
+                      ...item,
+                      stepHeading,
+                      cleanNote,
+                    });
+                  }
+
+                  return sanitizedItems.map((item, i) => (
+                    <div key={i} className="flex items-start gap-4 relative text-xs">
+                      <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-[10px] shrink-0 z-10 shadow-xs">
+                        ✓
                       </div>
-                      <p className="text-neutral-600">{item.note}</p>
+                      <div className="flex-1 p-3 bg-neutral-50 rounded-xl border border-neutral-200">
+                        <div className="flex justify-between items-center mb-0.5">
+                          <span className="font-bold text-neutral-900">
+                            {item.stepHeading}
+                          </span>
+                          <span className="text-[10px] text-neutral-400 font-mono">
+                            {formatBDTDateTime(item.timestamp, isEnglish)}
+                          </span>
+                        </div>
+                        <p className="text-neutral-600">{item.cleanNote}</p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ));
+                })()}
               </div>
             </div>
 
-            {/* Ordered Items Summary */}
-            <div className="pt-4 border-t border-neutral-200">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400 mb-3">
+            {/* Ordered Items Summary & Total Breakdown */}
+            <div className="pt-4 border-t border-neutral-200 space-y-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">
                 {"Ordered Items:"}
               </h3>
               <div className="space-y-2">
@@ -600,6 +725,48 @@ const PublicOrderTracking = ({
                   </div>
                 ))}
               </div>
+
+              {(() => {
+                const itemsSum = (Array.isArray(trackedOrder.items) ? trackedOrder.items : []).reduce(
+                  (acc, it) => acc + Number(it.price || 0) * Number(it.quantity || 1),
+                  0
+                );
+                const subtotalVal = Number(trackedOrder.subtotal ?? itemsSum);
+                const discountVal = Number(trackedOrder.discount || 0);
+                const deliveryVal = Number(
+                  trackedOrder.deliveryFee !== undefined && trackedOrder.deliveryFee !== null
+                    ? trackedOrder.deliveryFee
+                    : Math.max(0, Number(trackedOrder.total || 0) - subtotalVal + discountVal)
+                );
+                const grandTotal = Number(
+                  trackedOrder.total || subtotalVal + deliveryVal - discountVal
+                );
+
+                return (
+                  <div className="p-3.5 rounded-2xl bg-neutral-50 border border-neutral-200 space-y-1.5 text-xs">
+                    <div className="flex justify-between text-neutral-600">
+                      <span>{"Items Subtotal"}</span>
+                      <span className="font-semibold text-neutral-900">{formatBDT(subtotalVal)}</span>
+                    </div>
+                    <div className="flex justify-between text-neutral-600">
+                      <span>{"Delivery Charge"}</span>
+                      <span className="font-semibold text-neutral-900">
+                        {deliveryVal > 0 ? formatBDT(deliveryVal) : "Free"}
+                      </span>
+                    </div>
+                    {discountVal > 0 && (
+                      <div className="flex justify-between text-emerald-700">
+                        <span>{"Discount"}</span>
+                        <span className="font-semibold">-{formatBDT(discountVal)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center pt-2 border-t border-neutral-200 text-sm font-black text-neutral-900">
+                      <span>{"Total Payable"}</span>
+                      <span className="text-emerald-700">{formatBDT(grandTotal)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Helpline Footer */}
