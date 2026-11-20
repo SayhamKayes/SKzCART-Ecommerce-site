@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   ShoppingBag,
   Clock,
   Truck,
   DollarSign,
   ArrowUpRight,
-  Eye
+  Eye,
+  CreditCard,
+  Smartphone,
+  Banknote
 } from "lucide-react";
 import { formatBDT } from "../../utils/bangladesh";
 import { useLanguage } from "../../Context/LanguageContext";
@@ -17,13 +20,28 @@ const AdminOverview = ({
   products = [],
   onViewOrders,
   onSelectOrder,
-  onSelectOrderStatusFilter
+  onSelectOrderStatusFilter,
+  onNavigateTab
 }) => {
-  const { isEnglish, t } = useLanguage();
+  const { isEnglish } = useLanguage();
   const [isAnalyticsModalOpen, setIsAnalyticsModalOpen] = useState(false);
 
+  // Exclude uncompleted/failed SSLCommerz orders from Overview metrics & tables
+  const activeOrders = useMemo(
+    () =>
+      orders.filter(
+        (o) =>
+          !(
+            String(o.paymentMethod || "").toUpperCase() === "SSLCOMMERZ" &&
+            (String(o.paymentStatus || "").toUpperCase() === "FAILED" ||
+              String(o.status || "").toUpperCase() === "FAILED")
+          )
+      ),
+    [orders]
+  );
+
   // Financial & Operational Metrics
-  const totalRevenue = orders.reduce(
+  const totalRevenue = activeOrders.reduce(
     (acc, o) =>
       acc +
       (o.paymentStatus === "PAID" || o.status === "DELIVERED"
@@ -31,30 +49,49 @@ const AdminOverview = ({
         : 0),
     0
   );
-  const pendingOrders = orders.filter((o) => o.status === "PENDING");
-  const confirmedOrders = orders.filter((o) => o.status === "CONFIRMED");
-  const inTransitOrders = orders.filter(
+  const pendingOrders = activeOrders.filter((o) => o.status === "PENDING");
+  const confirmedOrders = activeOrders.filter((o) => o.status === "CONFIRMED");
+  const inTransitOrders = activeOrders.filter(
     (o) =>
       o.status === "IN_TRANSIT" ||
       o.status === "COURIER_CREATED" ||
       o.status === "OUT_FOR_DELIVERY"
   );
   const avgOrderValue =
-    orders.length > 0
+    activeOrders.length > 0
       ? Math.round(
-          orders.reduce((acc, o) => acc + (Number(o.total) || 0), 0) /
-            orders.length
+          activeOrders.reduce((acc, o) => acc + (Number(o.total) || 0), 0) /
+            activeOrders.length
         )
       : 0;
-  const codPendingTotal = orders
-    .filter(
-      (o) =>
-        o.paymentMethod === "COD" &&
-        o.status !== "DELIVERED" &&
-        o.status !== "CANCELLED" &&
-        o.status !== "RETURNED"
-    )
-    .reduce((acc, o) => acc + (Number(o.total) || 0), 0);
+  const codPendingOrders = activeOrders.filter(
+    (o) =>
+      String(o.paymentMethod || "").toUpperCase() === "COD" &&
+      o.status !== "DELIVERED" &&
+      o.status !== "CANCELLED" &&
+      o.status !== "RETURNED"
+  );
+  const codPendingTotal = codPendingOrders.reduce(
+    (acc, o) => acc + (Number(o.total) || 0),
+    0
+  );
+
+  // Dynamic Live Gateway summary (SSLCommerz, MFS: bKash/Nagad/Rocket, COD)
+  const gatewaySummary = useMemo(() => {
+    let ssl = 0;
+    let mfs = 0;
+    let cod = 0;
+    for (const o of activeOrders) {
+      const orderStatus = String(o.status || "").toUpperCase();
+      if (orderStatus === "CANCELLED" || orderStatus === "RETURNED") continue;
+      const method = String(o.paymentMethod || "").toUpperCase();
+      const amount = Number(o.total) || 0;
+      if (method === "SSLCOMMERZ") ssl += amount;
+      else if (method === "BKASH" || method === "NAGAD" || method === "ROCKET") mfs += amount;
+      else if (method === "COD") cod += amount;
+    }
+    return { ssl, mfs, cod, total: ssl + mfs + cod };
+  }, [activeOrders]);
 
   // Marketing attribution breakdown
   const sourceStats = {};
@@ -63,12 +100,12 @@ const AdminOverview = ({
     sourceStats[src] = (sourceStats[src] || 0) + (Number(o.total) || 0);
   });
 
-  // Safe navigation helper that applies the status filter in the Orders tab
-  const handleFilterClick = (status = "ALL") => {
+  // Safe navigation helper that applies the status & optional payment method filter in the Orders tab
+  const handleFilterClick = (status = "ALL", paymentMethod = "ALL") => {
     if (onSelectOrderStatusFilter) {
-      onSelectOrderStatusFilter(status);
+      onSelectOrderStatusFilter(status, paymentMethod);
     } else if (onViewOrders) {
-      onViewOrders(status);
+      onViewOrders(status, paymentMethod);
     }
   };
 
@@ -101,82 +138,114 @@ const AdminOverview = ({
 
   return (
     <div className="space-y-6">
-      {/* 1. Top Section: 3 Distinct Cards (Left Summary + Manage Button, Middle Total Earnings KPI, Right Total Orders KPI) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-stretch">
-        {/* Box 1 (Left): Today's Sales & Delivery Summary + Manage All Orders Button */}
-        <div className="bg-white rounded-3xl p-6 border border-neutral-200 shadow-xs flex flex-col justify-between space-y-4">
+      {/* 1. Top Section: 4 Compact Cards (Today's Sales Summary, Total Earnings, Total Orders, Live Gateway) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
+        {/* Box 1: Today's Sales Summary (Short & Compact) */}
+        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-neutral-200 shadow-xs flex flex-col justify-between gap-3">
           <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full">
               {"Daily Operational Summary"}
             </span>
-            <h1 className="text-xl sm:text-2xl font-black text-neutral-900 mt-2 leading-tight">
-              {"Today's Sales & Delivery Summary"}
+            <h1 className="text-lg font-black text-neutral-900 mt-1.5 leading-snug">
+              {"Today's Sales Summary"}
             </h1>
-            <p className="text-xs text-neutral-500 mt-1 leading-relaxed">
-              {"Live overview of revenue, pending verification, and courier dispatches"}
-            </p>
           </div>
 
-          <div className="pt-1">
-            <button
-              onClick={() => handleFilterClick("ALL")}
-              className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <ShoppingBag className="w-4 h-4" />
-              <span>
-                {`Manage All Orders (${orders.length})`}
-              </span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => handleFilterClick("ALL")}
+            className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <ShoppingBag className="w-3.5 h-3.5" />
+            <span>{`Manage All Orders (${activeOrders.length})`}</span>
+          </button>
         </div>
 
-        {/* Box 2 (Middle): Total Earnings KPI Card (Styled like lower operational cards) */}
+        {/* Box 2: Total Earnings KPI Card (Compact) */}
         <div
-          onClick={() => handleFilterClick("ALL")}
-          className="bg-white rounded-3xl p-6 border border-neutral-200 hover:border-emerald-400 hover:shadow-md transition-all cursor-pointer group shadow-xs flex flex-col justify-between"
-          title={"Click to view all orders"}
+          onClick={() =>
+            typeof onNavigateTab === "function"
+              ? onNavigateTab("analytics")
+              : handleFilterClick("ALL")
+          }
+          className="bg-white rounded-2xl p-4 sm:p-5 border border-neutral-200 hover:border-emerald-400 hover:shadow-md transition-all cursor-pointer group shadow-xs flex flex-col justify-between"
+          title={"Click to view Analytics"}
         >
-          <div className="flex justify-between items-start text-neutral-500 mb-2">
+          <div className="flex justify-between items-start text-neutral-500">
             <span className="text-xs font-bold uppercase tracking-wider group-hover:text-emerald-700 transition-colors">
               {"Total Earnings"}
             </span>
-            <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100 transition-colors">
+            <div className="p-1.5 rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100 transition-colors">
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
-          <div className="my-auto py-2">
-            <div className="text-3xl font-black text-neutral-900 group-hover:text-emerald-700 transition-colors">
+          <div className="pt-2">
+            <div className="text-2xl font-black text-neutral-900 group-hover:text-emerald-700 transition-colors">
               {formatBDT(totalRevenue)}
             </div>
-            <div className="text-xs text-emerald-600 mt-1.5 font-semibold flex items-center justify-between">
+            <div className="text-[11px] text-emerald-600 mt-1 font-semibold flex items-center justify-between">
               <span>{"Paid & Delivered"}</span>
               <span className="text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity">→</span>
             </div>
           </div>
         </div>
 
-        {/* Box 3 (Right): Total Orders KPI Card (Styled like lower operational cards) */}
+        {/* Box 3: Total Orders KPI Card (Compact) */}
         <div
           onClick={() => handleFilterClick("ALL")}
-          className="bg-white rounded-3xl p-6 border border-neutral-200 hover:border-blue-400 hover:shadow-md transition-all cursor-pointer group shadow-xs flex flex-col justify-between"
+          className="bg-white rounded-2xl p-4 sm:p-5 border border-neutral-200 hover:border-blue-400 hover:shadow-md transition-all cursor-pointer group shadow-xs flex flex-col justify-between"
           title={"Click to view all orders"}
         >
-          <div className="flex justify-between items-start text-neutral-500 mb-2">
+          <div className="flex justify-between items-start text-neutral-500">
             <span className="text-xs font-bold uppercase tracking-wider group-hover:text-blue-700 transition-colors">
               {"Total Orders"}
             </span>
-            <div className="p-2 rounded-xl bg-blue-50 text-blue-600 group-hover:bg-blue-100 transition-colors">
+            <div className="p-1.5 rounded-xl bg-blue-50 text-blue-600 group-hover:bg-blue-100 transition-colors">
               <ShoppingBag className="w-4 h-4" />
             </div>
           </div>
-          <div className="my-auto py-2">
-            <div className="text-3xl font-black text-neutral-900 group-hover:text-blue-700 transition-colors">
-              {orders.length} {"Orders"}
+          <div className="pt-2">
+            <div className="text-2xl font-black text-neutral-900 group-hover:text-blue-700 transition-colors">
+              {activeOrders.length} {"Orders"}
             </div>
-            <div className="text-xs text-blue-600 mt-1.5 font-semibold flex items-center justify-between">
+            <div className="text-[11px] text-blue-600 mt-1 font-semibold flex items-center justify-between">
               <span>
                 {"Avg:"} {formatBDT(avgOrderValue)}
               </span>
+              <span className="text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Box 4: Live Gateway Summary Card (Links to Order Management -> Order Payment Reconciliation) */}
+        <div
+          onClick={() => handleFilterClick("RECONCILIATION", "ALL")}
+          className="bg-white rounded-2xl p-4 sm:p-5 border border-neutral-200 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer group shadow-xs flex flex-col justify-between"
+          title={"Click to open Order Payment Reconciliation window"}
+        >
+          <div className="flex justify-between items-start text-neutral-500">
+            <span className="text-xs font-bold uppercase tracking-wider group-hover:text-indigo-700 transition-colors">
+              {"Live Gateway"}
+            </span>
+            <div className="p-1.5 rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100 transition-colors">
+              <CreditCard className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="pt-2 space-y-1 text-[11px] font-semibold text-neutral-700">
+            <div className="flex items-center justify-between">
+              <span className="text-blue-700">SSLCommerz</span>
+              <span className="font-bold text-neutral-900">{formatBDT(gatewaySummary.ssl)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-pink-700">MFS (bKash/Nagad/Rocket)</span>
+              <span className="font-bold text-neutral-900">{formatBDT(gatewaySummary.mfs)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-emerald-700">COD</span>
+              <span className="font-bold text-neutral-900">{formatBDT(gatewaySummary.cod)}</span>
+            </div>
+            <div className="text-[11px] text-indigo-600 pt-0.5 flex items-center justify-between border-t border-neutral-100">
+              <span>{"SSLCommerz • MFS • COD"}</span>
               <span className="text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity">→</span>
             </div>
           </div>
@@ -254,15 +323,15 @@ const AdminOverview = ({
           </div>
         </div>
 
-        {/* Card 4: Pending COD Remittance */}
+        {/* Card 4: Pending COD */}
         <div
-          onClick={() => handleFilterClick("ALL")}
+          onClick={() => handleFilterClick("RECONCILIATION", "COD")}
           className="bg-white rounded-2xl p-5 border border-neutral-200 hover:border-emerald-400 hover:shadow-md transition-all cursor-pointer group shadow-xs"
-          title={"Click to view all COD orders"}
+          title={"Click to view Cash on Delivery orders"}
         >
           <div className="flex justify-between items-start text-neutral-500 mb-2">
             <span className="text-xs font-semibold group-hover:text-emerald-700 transition-colors">
-              {"Pending COD Remittance"}
+              {"Pending COD"}
             </span>
             <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100 transition-colors">
               <DollarSign className="w-4 h-4" />
@@ -272,7 +341,7 @@ const AdminOverview = ({
             {formatBDT(codPendingTotal)}
           </div>
           <div className="text-[11px] text-emerald-600 mt-1 flex items-center justify-between">
-            <span>{"Deposited upon delivery"}</span>
+            <span>{`${codPendingOrders.length} Orders • Deposited upon delivery`}</span>
             <span className="text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity text-emerald-700">→</span>
           </div>
         </div>
@@ -281,7 +350,7 @@ const AdminOverview = ({
       {/* 3. Bottom Row: 3 Columns (Recent Orders, Modular Graph Card, Ad Traffic & Sources) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Column 1: Recent Orders */}
-        <div className="bg-white rounded-3xl p-5 border border-neutral-200 shadow-xs flex flex-col justify-between space-y-4">
+        <div className="bg-white rounded-3xl p-5 border border-neutral-200 shadow-xs flex flex-col space-y-3">
           <div className="flex justify-between items-center">
             <div>
               <h3 className="text-base font-bold text-neutral-900">
@@ -300,7 +369,7 @@ const AdminOverview = ({
             </button>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto flex-1">
             <table className="w-full text-left text-xs">
               <thead className="bg-neutral-50 text-neutral-500 font-semibold border-y border-neutral-200">
                 <tr>
@@ -312,7 +381,13 @@ const AdminOverview = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100">
-                {orders.slice(0, 5).map((order) => (
+                {activeOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-10 text-center text-neutral-400">
+                      {"No recent orders found."}
+                    </td>
+                  </tr>
+                ) : activeOrders.slice(0, 5).map((order) => (
                   <tr key={order.id} className="hover:bg-neutral-50/80 transition-colors">
                     <td className="py-3 px-2.5 font-mono font-bold text-neutral-900 whitespace-nowrap">
                       #{order.id}
@@ -361,9 +436,9 @@ const AdminOverview = ({
             </table>
           </div>
 
-          <div className="pt-2 border-t border-neutral-100 text-[11px] text-neutral-400 flex justify-between items-center">
+          <div className="mt-auto pt-2 border-t border-neutral-100 text-[11px] text-neutral-400 flex justify-between items-center">
             <span>
-              {`Showing 5 of ${orders.length} orders`}
+              {`Showing ${Math.min(5, activeOrders.length)} of ${activeOrders.length} orders`}
             </span>
             <button
               onClick={() => handleFilterClick("ALL")}
