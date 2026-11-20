@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Fragment } from "react";
 import {
   Zap,
   Target,
@@ -33,10 +33,17 @@ import {
   ArrowUpRight,
   Sparkles,
   Trash2,
-  Power
+  Power,
+  ChevronDown,
+  Rocket,
+  Facebook,
+  AlertTriangle,
+  SlidersHorizontal
 } from "lucide-react";
-import { marketingTracker } from "../../services/marketing";
+import MetaConnectionBar from "./MetaConnectionBar";
+import MetaBoostWizardDrawer from "./MetaBoostWizardDrawer";
 import { apiClient } from "../../services/api";
+import { marketingTracker } from "../../services/marketing";
 import { realtimeService } from "../../services/realtime";
 import { formatBDT } from "../../utils/bangladesh";
 import { useLanguage } from "../../Context/LanguageContext";
@@ -94,10 +101,12 @@ const AdminMarketing = ({
   products = [],
   landingPages = [],
   orders = [],
+  sectionMode = "pixel",
   onNavigateTab,
   onSelectCampaignProduct,
   onNavigateToView,
 }) => {
+  const isCampaignsView = sectionMode === "campaigns";
   const { isEnglish, getProductName } = useLanguage();
   const { themeConfig, updateThemeConfig } = useThemeConfig();
 
@@ -134,9 +143,25 @@ const AdminMarketing = ({
   const [testStatus, setTestStatus] = useState("");
   const [isFiringTest, setIsFiringTest] = useState(false);
 
-  // Live Events Stream
+  // Live Events Stream & Product Pixel Insights
   const [recentEvents, setRecentEvents] = useState([]);
+  const [serverProductStats, setServerProductStats] = useState([]);
+  const [hasLoadedServerBundle, setHasLoadedServerBundle] = useState(false);
+  const [savedPixelId, setSavedPixelId] = useState("");
+  const [rightPanelTab, setRightPanelTab] = useState("stream"); // "stream" | "chart"
+  const [chartMetricTab, setChartMetricTab] = useState("ALL"); // ALL | VIEWS | CLICKS | PURCHASES
   const [nowTime, setNowTime] = useState(Date.now());
+
+  // Single-Store Meta Ads States (declared early before useMemo hooks)
+  const [activeTenantId] = useState("default");
+  const [metaConnection, setMetaConnection] = useState(null);
+  const [hasServerOAuthApp, setHasServerOAuthApp] = useState(false);
+  const [saasCampaigns, setSaasCampaigns] = useState([]);
+  const [expandedCampaignIds, setExpandedCampaignIds] = useState({});
+  const [adSetBudgetEdits, setAdSetBudgetEdits] = useState({});
+  const [savingAdSetId, setSavingAdSetId] = useState("");
+  const [isBoostWizardOpen, setIsBoostWizardOpen] = useState(false);
+  const [boostWizardMode, setBoostWizardMode] = useState("QUICK_BOOST_PRODUCT");
 
   // 1-second interval to update live relative time (e.g. Just now, 5s ago, 6s ago, etc.)
   useEffect(() => {
@@ -150,9 +175,18 @@ const AdminMarketing = ({
 
     const fetchEvents = async () => {
       try {
-        const events = await apiClient.getMarketingEvents();
-        if (isMounted && events && events.length > 0) {
-          setRecentEvents(events);
+        const bundle = await apiClient.getMarketingEventsBundle();
+        if (isMounted && bundle) {
+          setHasLoadedServerBundle(true);
+          if (Array.isArray(bundle.events)) {
+            setRecentEvents(bundle.events);
+          }
+          if (Array.isArray(bundle.productAnalytics)) {
+            setServerProductStats(bundle.productAnalytics);
+          }
+          if (bundle.activePixelId !== undefined) {
+            setSavedPixelId(bundle.activePixelId || "");
+          }
         }
       } catch (e) {
         // silent fail
@@ -192,23 +226,25 @@ const AdminMarketing = ({
         const config = await apiClient.getMarketingConfig();
         if (mounted && config) {
           setPixelId(config.pixelId || "");
+          setSavedPixelId(config.pixelId || "");
           setCapiToken(config.capiToken || "");
           setGa4Id(config.ga4Id || "");
           setAdAccountId(config.adAccountId || "");
           setTestEventCode(config.testEventCode || "");
-          setTargetScope(config.targetScope || "GLOBAL");
+          setTargetScope(config.targetScope === "PRODUCT" ? "PRODUCT" : "GLOBAL");
           setTargetProductId(config.targetProductId || (products[0]?.id || ""));
-          setTargetLandingSlug(config.targetLandingSlug || (landingPages[0]?.slug || ""));
           setIsActive(config.isActive !== false);
 
           marketingTracker.applyConfig(config);
         }
 
-        const events = await apiClient.getMarketingEvents();
-        if (mounted && events && events.length > 0) {
-          setRecentEvents(events);
-        } else if (mounted) {
-          setRecentEvents(marketingTracker.getRecentEvents());
+        const bundle = await apiClient.getMarketingEventsBundle();
+        if (mounted && bundle) {
+          setHasLoadedServerBundle(true);
+          setRecentEvents(Array.isArray(bundle.events) ? bundle.events : []);
+          if (Array.isArray(bundle.productAnalytics)) {
+            setServerProductStats(bundle.productAnalytics);
+          }
         }
       } catch (err) {
         console.warn("Failed to load marketing settings:", err);
@@ -236,18 +272,17 @@ const AdminMarketing = ({
     const payload = {
       pixelId: pixelId.trim(),
       capiToken: capiToken.trim(),
-      ga4Id: ga4Id.trim(),
-      adAccountId: adAccountId.trim(),
       testEventCode: testEventCode.trim(),
-      targetScope,
+      targetScope: targetScope === "PRODUCT" ? "PRODUCT" : "GLOBAL",
       targetProductId: targetScope === "PRODUCT" ? targetProductId : "",
-      targetLandingSlug: targetScope === "LANDING" ? targetLandingSlug : "",
+      targetLandingSlug: "",
       isActive,
     };
 
     try {
       const res = await apiClient.updateMarketingConfig(payload);
       if (res && res.success) {
+        setSavedPixelId(payload.pixelId);
         marketingTracker.applyConfig(payload);
         realtimeService.broadcast({
           type: "MARKETING_CONFIG_UPDATED",
@@ -267,8 +302,56 @@ const AdminMarketing = ({
     }
   };
 
+  // Immediate Active / Paused Toggle Handler (persists + hides/shows live tracking instantly)
+  const handleToggleActive = async (nextActive) => {
+    setIsActive(nextActive);
+    const nextConfig = {
+      pixelId: pixelId.trim(),
+      capiToken: capiToken.trim(),
+      testEventCode: testEventCode.trim(),
+      targetScope: targetScope === "PRODUCT" ? "PRODUCT" : "GLOBAL",
+      targetProductId: targetScope === "PRODUCT" ? targetProductId : "",
+      targetLandingSlug: "",
+      isActive: nextActive,
+    };
+    marketingTracker.applyConfig(nextConfig);
+    realtimeService.broadcast({
+      type: "MARKETING_CONFIG_UPDATED",
+      payload: nextConfig,
+    });
+    if (!nextActive) {
+      setRecentEvents([]);
+      setServerProductStats([]);
+    }
+    try {
+      const res = await apiClient.updateMarketingConfig({ isActive: nextActive });
+      if (res && res.success) {
+        setSaveSuccessMsg(
+          nextActive
+            ? "Meta Pixel & CAPI activated!"
+            : "Meta Pixel & CAPI deactivated (Paused). Tracking and streams are now hidden."
+        );
+        setTimeout(() => setSaveSuccessMsg(""), 4000);
+        if (nextActive) {
+          const bundle = await apiClient.getMarketingEventsBundle();
+          if (bundle) {
+            setHasLoadedServerBundle(true);
+            setRecentEvents(Array.isArray(bundle.events) ? bundle.events : []);
+            if (Array.isArray(bundle.productAnalytics)) {
+              setServerProductStats(bundle.productAnalytics);
+            }
+          }
+        }
+      }
+    } catch {}
+  };
+
   // Dedicated Fire Test Event Handler
   const handleFireTestEvent = async () => {
+    if (!isActive) {
+      setTestStatus("[PAUSED] Meta Pixel & CAPI is deactivated. Check Active above to test & track events.");
+      return;
+    }
     setIsFiringTest(true);
     setTestStatus("");
 
@@ -286,10 +369,6 @@ const AdminMarketing = ({
         eventPayload.name = p.name;
         eventPayload.productName = p.name;
       }
-    } else if (targetScope === "LANDING" && targetLandingSlug) {
-      eventPayload.campaign = targetLandingSlug;
-      eventPayload.name = `Campaign: ${targetLandingSlug}`;
-      eventPayload.productName = `Campaign: ${targetLandingSlug}`;
     } else if (products && products.length > 0) {
       eventPayload.productId = products[0].id;
       eventPayload.name = products[0].name;
@@ -302,21 +381,23 @@ const AdminMarketing = ({
     const eventId = marketingTracker.track(testEventName, eventPayload, {
       source: "admin_test_console",
       productId: eventPayload.productId || targetProductId,
-      campaign: targetLandingSlug,
     });
 
     setTestStatus(
       `[DISPATCHED] Event: ${testEventName} | ID: ${eventId} | Synced with Browser Pixel & Server CAPI`
     );
 
-    // Refresh event stream after dispatch
+    // Refresh event stream & product analytics after dispatch
     setTimeout(async () => {
       try {
-        const events = await apiClient.getMarketingEvents();
-        if (events && events.length > 0) {
-          setRecentEvents(events);
+        const bundle = await apiClient.getMarketingEventsBundle();
+        if (bundle?.events?.length > 0) {
+          setRecentEvents(bundle.events);
         } else {
           setRecentEvents([...marketingTracker.getRecentEvents()]);
+        }
+        if (Array.isArray(bundle?.productAnalytics)) {
+          setServerProductStats(bundle.productAnalytics);
         }
       } catch {
         setRecentEvents([...marketingTracker.getRecentEvents()]);
@@ -324,6 +405,202 @@ const AdminMarketing = ({
       setIsFiringTest(false);
     }, 800);
   };
+
+  const activePixelValue = (savedPixelId || pixelId).trim();
+
+  const selectedScopeProduct = useMemo(
+    () => products.find((p) => String(p.id) === String(targetProductId)) || null,
+    [products, targetProductId]
+  );
+
+  // Lookup maps strictly for products currently present in the Store catalog
+  const activeProductsMap = useMemo(() => {
+    const byId = new Map();
+    const byName = new Map();
+    for (const p of Array.isArray(products) ? products : []) {
+      if (!p) continue;
+      if (p.id) byId.set(String(p.id).trim(), p);
+      if (p.name) byName.set(String(p.name).trim().toLowerCase(), p);
+    }
+    return { byId, byName };
+  }, [products]);
+
+  const matchActiveStoreProduct = useMemo(() => {
+    return (pid, pname) => {
+      const cleanId = String(pid || "").trim();
+      if (cleanId && activeProductsMap.byId.has(cleanId)) {
+        return activeProductsMap.byId.get(cleanId);
+      }
+      const cleanName = String(pname || "").split(" (x")[0].trim().toLowerCase();
+      if (cleanName && activeProductsMap.byName.has(cleanName)) {
+        return activeProductsMap.byName.get(cleanName);
+      }
+      return null;
+    };
+  }, [activeProductsMap]);
+
+  // Scoped Live Events (Strictly active store products; Entire Store vs Specific Product)
+  const filteredRecentEvents = useMemo(() => {
+    const list = Array.isArray(recentEvents) ? recentEvents : [];
+    if (!isActive || !activePixelValue) return [];
+
+    const activeOnly = list.filter((ev) => {
+      if (!ev || String(ev.eventName || "") === "PageView") return false;
+      const matched = matchActiveStoreProduct(ev.productId, ev.productName || ev.name || ev.content_name);
+      return Boolean(matched);
+    });
+
+    if (targetScope === "PRODUCT" && targetProductId) {
+      const targetIdStr = String(targetProductId).trim();
+      return activeOnly.filter((ev) => {
+        const matched = matchActiveStoreProduct(ev.productId, ev.productName || ev.name || ev.content_name);
+        return matched && String(matched.id) === targetIdStr;
+      });
+    }
+    return activeOnly;
+  }, [recentEvents, activePixelValue, targetScope, targetProductId, matchActiveStoreProduct]);
+
+  // Dynamic Pixel Product Analytics (Views, Clicks & Purchases strictly for active Store products)
+  const pixelProductInsights = useMemo(() => {
+    const emptyRes = {
+      rows: [],
+      topViewed: null,
+      topClicked: null,
+      topPurchased: null,
+      totals: { views: 0, clicks: 0, purchases: 0, revenue: 0 },
+    };
+    if (!isActive || !activePixelValue) return emptyRes;
+
+    const map = new Map();
+
+    const getBucket = (pid, pname) => {
+      const matchedProd = matchActiveStoreProduct(pid, pname);
+      if (!matchedProd) return null; // Ignore deleted / non-existent store products
+      if (targetScope === "PRODUCT" && targetProductId && String(matchedProd.id) !== String(targetProductId)) {
+        return null;
+      }
+      const key = String(matchedProd.id);
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          productId: key,
+          productName: getProductName(matchedProd),
+          views: 0,
+          clicks: 0,
+          purchases: 0,
+          revenue: 0,
+        });
+      }
+      return map.get(key);
+    };
+
+    const useServerStats = hasLoadedServerBundle || (Array.isArray(serverProductStats) && serverProductStats.length > 0);
+    if (useServerStats) {
+      for (const row of Array.isArray(serverProductStats) ? serverProductStats : []) {
+        const b = getBucket(row.productId, row.productName);
+        if (!b) continue;
+        b.views = Number(row.views || 0);
+        b.clicks = Number(row.clicks || 0);
+        b.purchases = Number(row.purchases || 0);
+        b.revenue = Number(row.revenue || 0);
+      }
+
+      // Merge ONLY unsynced real-time client BroadcastChannel events not yet present on the server
+      const serverEventIds = new Set(
+        (Array.isArray(recentEvents) ? recentEvents : [])
+          .filter((e) => Boolean(e && !e._isClientPending))
+          .map((e) => String(e.eventId || e.id))
+      );
+      for (const ev of Array.isArray(recentEvents) ? recentEvents : []) {
+        if (
+          ev &&
+          ev._isClientPending === true &&
+          !ev.serverSynced &&
+          !ev.created_at &&
+          !serverEventIds.has(String(ev.eventId || ev.id))
+        ) {
+          const evName = String(ev?.eventName || "").trim();
+          if (!evName || evName === "PageView") continue;
+          const b = getBucket(ev.productId, ev.productName || ev.name);
+          if (!b) continue;
+          if (evName === "ViewContent") b.views += 1;
+          else if (evName === "ProductClick" || evName === "AddToCart" || evName === "InitiateCheckout") {
+            b.clicks += 1;
+          } else if (evName === "Purchase") {
+            b.purchases += 1;
+            b.revenue += Number(ev.value || 0);
+          }
+        }
+      }
+    } else {
+      for (const ev of Array.isArray(recentEvents) ? recentEvents : []) {
+        const evName = String(ev?.eventName || "").trim();
+        if (!evName || evName === "PageView") continue;
+        const b = getBucket(ev.productId, ev.productName || ev.name || ev.content_name);
+        if (!b) continue;
+        if (evName === "ViewContent") b.views += 1;
+        else if (evName === "ProductClick" || evName === "AddToCart" || evName === "InitiateCheckout") {
+          b.clicks += 1;
+        } else if (evName === "Purchase") {
+          b.purchases += 1;
+          b.revenue += Number(ev.value || 0);
+        }
+      }
+
+      for (const ord of Array.isArray(orders) ? orders : []) {
+        const st = String(ord?.status || "").toUpperCase();
+        if (st === "CANCELLED" || st === "FAILED" || st === "RETURNED") continue;
+        for (const it of Array.isArray(ord?.items) ? ord.items : []) {
+          const b = getBucket(it.productId || it.id, it.name);
+          if (!b) continue;
+          const qty = Number(it.quantity || 1);
+          b.purchases += qty;
+          b.revenue += Number(it.price || 0) * qty;
+        }
+      }
+    }
+
+    const list = Array.from(map.values());
+    const topViewed = [...list].sort((a, b) => b.views - a.views)[0] || null;
+    const topClicked = [...list].sort((a, b) => b.clicks - a.clicks)[0] || null;
+    const topPurchased = [...list].sort((a, b) => b.purchases - a.purchases)[0] || null;
+
+    const sortedRows = [...list].sort((a, b) => {
+      if (chartMetricTab === "VIEWS") return b.views - a.views;
+      if (chartMetricTab === "CLICKS") return b.clicks - a.clicks;
+      if (chartMetricTab === "PURCHASES") return b.purchases - a.purchases;
+      return (b.purchases * 10 + b.clicks * 2 + b.views) - (a.purchases * 10 + a.clicks * 2 + a.views);
+    });
+
+    const totals = list.reduce(
+      (acc, r) => ({
+        views: acc.views + r.views,
+        clicks: acc.clicks + r.clicks,
+        purchases: acc.purchases + r.purchases,
+        revenue: acc.revenue + r.revenue,
+      }),
+      { views: 0, clicks: 0, purchases: 0, revenue: 0 }
+    );
+
+    return {
+      rows: sortedRows.slice(0, 6),
+      topViewed,
+      topClicked,
+      topPurchased,
+      totals,
+    };
+  }, [
+    activePixelValue,
+    targetScope,
+    targetProductId,
+    hasLoadedServerBundle,
+    serverProductStats,
+    recentEvents,
+    orders,
+    matchActiveStoreProduct,
+    chartMetricTab,
+    getProductName,
+  ]);
 
   // Campaign Table & Pagination States
   const [currentPage, setCurrentPage] = useState(1);
@@ -439,6 +716,10 @@ const AdminMarketing = ({
   // Confirm and permanently delete campaign
   const confirmDeleteCampaign = () => {
     if (!campaignToDelete) return;
+    if (campaignToDelete.isSaasCampaign) {
+      handleDeleteSaasCampaign(campaignToDelete);
+      return;
+    }
     const targetId = campaignToDelete.id;
 
     const updatedCustom = customCampaigns.filter((c) => c.id !== targetId);
@@ -458,143 +739,79 @@ const AdminMarketing = ({
     setCampaignToDelete(null);
   };
 
-  // Base campaigns linked to store products and platforms with sequential naming convention
+  // Dynamic product funnel campaigns (100% live data—no hardcoded static clicks, orders, or revenue)
   const baseCampaigns = useMemo(() => {
-    const p0 = products[0];
-    const p1 = products[1];
-    const p2 = products[2];
-    const p3 = products[3];
-    const p4 = products[4] || p0;
+    return (Array.isArray(products) ? products : []).slice(0, 5).map((p, idx) => ({
+      id: `camp-prod-${p.id || idx + 1}`,
+      campaignNumber: idx + 1,
+      name: `Product Campaign ${idx + 1}: ${p.name} (Meta Funnel)`,
+      source: "facebook",
+      productId: p.id,
+      productName: p.name,
+      spend: 0,
+      clicks: 0,
+      baseOrders: 0,
+      baseRevenue: 0,
+    }));
+  }, [products]);
 
-    return [
-      {
-        id: "camp-prod-1",
-        campaignNumber: 1,
-        name: `Product Campaign 1: ${p0?.name || "Smart Gadget"} (Facebook Ads)`,
-        source: "facebook",
-        productId: p0?.id || "prod-1",
-        productName: p0?.name || "360° Rotating Makeup Organizer",
-        spend: 7500,
-        clicks: 3850,
-        baseOrders: 42,
-        baseRevenue: 84000,
-      },
-      {
-        id: "camp-prod-2",
-        campaignNumber: 2,
-        name: `Product Campaign 2: ${p1?.name || "Retro Lantern"} (TikTok Ads)`,
-        source: "tiktok",
-        productId: p1?.id || "prod-2",
-        productName: p1?.name || "Retro Camping Lantern",
-        spend: 5200,
-        clicks: 3100,
-        baseOrders: 36,
-        baseRevenue: 68400,
-      },
-      {
-        id: "camp-prod-3",
-        campaignNumber: 3,
-        name: `Product Campaign 3: ${p2?.name || "Grooming Kit"} (Instagram Ads)`,
-        source: "instagram",
-        productId: p2?.id || "prod-3",
-        productName: p2?.name || "7-in-1 Precision Nail Kit",
-        spend: 4800,
-        clicks: 2900,
-        baseOrders: 31,
-        baseRevenue: 58900,
-      },
-      {
-        id: "camp-prod-4",
-        campaignNumber: 4,
-        name: `Product Campaign 4: ${p3?.name || "Massage Gun"} (Google Ads)`,
-        source: "google",
-        productId: p3?.id || "prod-4",
-        productName: p3?.name || "Facial Massage Gun & Reliever",
-        spend: 8500,
-        clicks: 2200,
-        baseOrders: 39,
-        baseRevenue: 74100,
-      },
-      {
-        id: "camp-prod-5",
-        campaignNumber: 5,
-        name: `Product Campaign 5: ${p4?.name || "Trending Lifestyle"} (YouTube Ads)`,
-        source: "youtube",
-        productId: p4?.id || "prod-5",
-        productName: p4?.name || "Hot Trending Lifestyle Product",
-        spend: 4200,
-        clicks: 2150,
-        baseOrders: 25,
-        baseRevenue: 47500,
-      },
-      {
-        id: "camp-prod-6",
-        campaignNumber: 6,
-        name: "Product Campaign 6: Entire Store Flash Sale (Facebook Ads)",
-        source: "facebook",
-        productId: "all",
-        productName: "Entire Store Catalog",
-        spend: 11000,
-        clicks: 4400,
-        baseOrders: 78,
-        baseRevenue: 156000,
-      },
-      {
-        id: "camp-prod-7",
-        campaignNumber: 7,
-        name: "Product Campaign 7: Nationwide COD Express (TikTok Ads)",
-        source: "tiktok",
-        productId: "all",
-        productName: "All Verified COD Products",
-        spend: 6800,
-        clicks: 3400,
-        baseOrders: 46,
-        baseRevenue: 89000,
-      },
-      {
-        id: "camp-prod-8",
-        campaignNumber: 8,
-        name: `Product Campaign 8: Retargeting VIP - ${p0?.name || "Smart Gadget"} (Facebook Ads)`,
-        source: "facebook",
-        productId: p0?.id || "prod-1",
-        productName: p0?.name || "Hot Trending Product",
-        spend: 5900,
-        clicks: 3200,
-        baseOrders: 37,
-        baseRevenue: 74000,
-      },
-    ];
-  }, [products, isEnglish]);
+  // Combine live SaaS Meta DB campaigns + local/UTM product funnel links
+  const normalizedSaasCampaigns = useMemo(() => {
+    return (Array.isArray(saasCampaigns) ? saasCampaigns : []).map((sc, idx) => {
+      const isPaused = String(sc.status || "").toUpperCase() !== "ACTIVE";
+      const roasNum = Number(sc.roas || 0);
+      return {
+        ...sc,
+        isSaasCampaign: true,
+        campaignNumber: idx + 1,
+        productName: sc.productName || (sc.postId ? `FB Post #${sc.postId}` : "Meta Ads Funnel"),
+        isPaused,
+        status: isPaused ? "paused" : "active",
+        orders: Number(sc.storeOrders || 0),
+        revenue: Number(sc.storeRevenue || 0),
+        roasNum,
+        roas: Number(sc.spend || 0) > 0 ? `${roasNum.toFixed(1)}x` : "—",
+      };
+    });
+  }, [saasCampaigns]);
 
-  // Combine base campaigns + custom user campaigns, excluding deleted campaigns
   const allCampaigns = useMemo(() => {
-    const combined = [...baseCampaigns, ...customCampaigns];
-    return combined
-      .filter((camp) => !deletedCampaignIds.includes(camp.id))
+    const baseFiltered = activeTenantId === "default" ? [...baseCampaigns, ...(Array.isArray(customCampaigns) ? customCampaigns : [])] : (Array.isArray(customCampaigns) ? customCampaigns : []);
+    const delSet = Array.isArray(deletedCampaignIds) ? deletedCampaignIds : [];
+    const pausedSet = Array.isArray(pausedCampaignIds) ? pausedCampaignIds : [];
+    return baseFiltered
+      .filter((camp) => camp && camp.id && !delSet.includes(camp.id))
       .map((camp) => {
-        const isPaused = pausedCampaignIds.includes(camp.id) || camp.status === "paused";
+        const isPaused = pausedSet.includes(camp.id) || camp.status === "paused";
         return {
           ...camp,
+          source: String(camp.source || "facebook"),
+          name: String(camp.name || "Ad Campaign"),
+          productName: String(camp.productName || "Store Catalog"),
+          isSaasCampaign: false,
           isPaused,
           status: isPaused ? "paused" : "active",
         };
       });
-  }, [baseCampaigns, customCampaigns, deletedCampaignIds, pausedCampaignIds]);
+  }, [baseCampaigns, customCampaigns, deletedCampaignIds, pausedCampaignIds, activeTenantId]);
 
-  // Dynamic attribution from real confirmed orders
+  // Dynamic attribution from real confirmed orders + live Meta Insights
   const campaignStats = useMemo(() => {
-    return allCampaigns.map((camp) => {
-      const matchingOrders = orders.filter((o) => {
-        if (o.status === "CANCELLED") return false;
-        const utmSource = (o.utm?.source || "").toLowerCase();
-        const utmCamp = (o.utm?.campaign || "").toLowerCase();
-        const campSlug = (camp.name || "").toLowerCase().replace(/\s+/g, "_");
-        const isCampMatch = utmCamp && (campSlug.includes(utmCamp) || utmCamp.includes(camp.id));
-        const isSourceMatch = utmSource && utmSource.includes(camp.source.toLowerCase());
+    const safeOrders = Array.isArray(orders) ? orders : [];
+    const localAttributed = allCampaigns.map((camp) => {
+      const campSrcLower = String(camp.source || "facebook").toLowerCase();
+      const matchingOrders = safeOrders.filter((o) => {
+        if (!o || o.status === "CANCELLED") return false;
+        const utmObj = o.utm && typeof o.utm === "object" ? o.utm : {};
+        const utmSource = String(utmObj.source || "").toLowerCase();
+        const utmCamp = String(utmObj.campaign || "").toLowerCase();
+        const campSlug = String(camp.name || "").toLowerCase().replace(/\s+/g, "_");
+        const isCampMatch = utmCamp && (campSlug.includes(utmCamp) || utmCamp.includes(String(camp.id || "")));
+        const isSourceMatch = utmSource && campSrcLower && utmSource.includes(campSrcLower);
         const isProductMatch =
           camp.productId !== "all" &&
           Array.isArray(o.items) &&
-          o.items.some((item) => item.productId === camp.productId || item.id === camp.productId);
+          o.items.some((item) => item && (item.productId === camp.productId || item.id === camp.productId));
 
         return isCampMatch || (isSourceMatch && isProductMatch) || (isSourceMatch && camp.productId === "all");
       });
@@ -602,27 +819,39 @@ const AdminMarketing = ({
       const liveOrdersCount = matchingOrders.length;
       const liveRevenue = matchingOrders.reduce((sum, o) => sum + (o.total || 0), 0);
 
+      // Count live product clicks/add-to-carts from tracked events
+      const matchingClicks = (Array.isArray(recentEvents) ? recentEvents : []).filter((ev) => {
+        if (!["ProductClick", "AddToCart", "InitiateCheckout"].includes(ev?.eventName)) return false;
+        if (camp.productId && camp.productId !== "all") {
+          return String(ev.productId || "") === String(camp.productId);
+        }
+        return true;
+      }).length;
+
       const totalOrders = (camp.baseOrders || 0) + liveOrdersCount;
       const totalRevenue = (camp.baseRevenue || 0) + liveRevenue;
-      const spend = camp.spend || 1;
-      const roasNum = totalRevenue / spend;
-      const roas = roasNum > 0 ? `${roasNum.toFixed(1)}x` : "0.0x";
+      const spend = camp.spend || 0;
+      const roasNum = spend > 0 ? totalRevenue / spend : 0;
+      const roas = spend > 0 ? `${roasNum.toFixed(1)}x` : "—";
 
       return {
         ...camp,
+        clicks: (camp.clicks || 0) + matchingClicks,
         orders: totalOrders,
         revenue: totalRevenue,
         roas,
         roasNum,
       };
     });
-  }, [allCampaigns, orders]);
+
+    return [...normalizedSaasCampaigns, ...localAttributed];
+  }, [normalizedSaasCampaigns, allCampaigns, orders, recentEvents]);
 
   // Overall metrics calculation
   const totalCampaignsCount = campaignStats.length;
-  const totalSpendSum = campaignStats.reduce((s, c) => s + (c.spend || 0), 0);
-  const totalOrdersSum = campaignStats.reduce((s, c) => s + (c.orders || 0), 0);
-  const totalRevenueSum = campaignStats.reduce((s, c) => s + (c.revenue || 0), 0);
+  const totalSpendSum = campaignStats.reduce((s, c) => s + Number(c?.spend || 0), 0);
+  const totalOrdersSum = campaignStats.reduce((s, c) => s + Number(c?.orders || 0), 0);
+  const totalRevenueSum = campaignStats.reduce((s, c) => s + Number(c?.revenue || 0), 0);
   const averageRoas = totalSpendSum > 0 ? (totalRevenueSum / totalSpendSum).toFixed(1) + "x" : "0.0x";
 
   // Filtered & Paginated campaigns
@@ -649,8 +878,11 @@ const AdminMarketing = ({
 
   // Generate 100% valid trackable link targeting campaign landing or storefront
   const getCampaignUrl = (camp) => {
-    const slug = (camp.name || "ad_campaign").toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    const slug = camp.utmCampaign || (camp.name || "ad_campaign").toLowerCase().replace(/[^a-z0-9]+/g, "_");
     const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://amardokan.com";
+    if (!camp.isPaused && camp.landingUrl) {
+      return camp.landingUrl;
+    }
     if (camp.isPaused) {
       const prod = products.find((p) => p.id === camp.productId);
       const prodSlug = prod?.slug || camp.productId;
@@ -703,40 +935,92 @@ const AdminMarketing = ({
     }
   };
 
-  // Trigger Live Meta Ads Metrics Sync via Graph API backend endpoint
+  const loadSaasAdsWorkspace = async () => {
+    try {
+      const [connRes, campsRes] = await Promise.all([
+        apiClient.getMetaConnection(),
+        apiClient.getMetaCampaigns(),
+      ]);
+      if (connRes?.success) {
+        setMetaConnection(connRes.connection || null);
+        setHasServerOAuthApp(Boolean(connRes.hasServerOAuthApp));
+      }
+      if (campsRes?.success && Array.isArray(campsRes.campaigns)) {
+        setSaasCampaigns(campsRes.campaigns);
+      }
+    } catch (err) {
+      console.warn("Failed to load Meta Ads workspace:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (isCampaignsView) {
+      loadSaasAdsWorkspace();
+    }
+  }, [isCampaignsView, activeTenantId]);
+
+  const handleToggleSaasCampaignStatus = async (camp) => {
+    const nextStatus = String(camp.status || "").toUpperCase() === "ACTIVE" ? "PAUSED" : "ACTIVE";
+    try {
+      const res = await apiClient.toggleMetaCampaignStatus(camp.id, nextStatus);
+      if (res && res.success && res.campaign) {
+        setSaasCampaigns((prev) => prev.map((c) => (c.id === camp.id ? res.campaign : c)));
+        setActionSuccessMsg(`"${camp.name}" updated to ${nextStatus} on Meta & DB!`);
+      } else {
+        setMetaSyncMsg(res?.message || "Failed to toggle campaign status on Meta.");
+      }
+    } catch (err) {
+      setMetaSyncMsg(err.message || "Failed to update campaign status.");
+    }
+  };
+
+  const handleSaveAdSetBudget = async (adset) => {
+    const nextVal = Number(adSetBudgetEdits[adset.id] ?? adset.dailyBudget);
+    if (!nextVal || nextVal <= 0) return;
+    setSavingAdSetId(adset.id);
+    try {
+      const res = await apiClient.updateMetaAdSet(adset.id, { dailyBudget: nextVal });
+      if (res && res.success) {
+        await loadSaasAdsWorkspace();
+        setActionSuccessMsg(`Updated AdSet "${adset.name}" daily budget to ${nextVal}!`);
+      } else {
+        setMetaSyncMsg(res?.message || "Failed to update AdSet budget on Meta.");
+      }
+    } finally {
+      setSavingAdSetId("");
+    }
+  };
+
+  const handleDeleteSaasCampaign = async (camp) => {
+    const res = await apiClient.deleteMetaCampaign(camp.id);
+    if (res && res.success) {
+      setSaasCampaigns((prev) => prev.filter((c) => c.id !== camp.id));
+      setActionSuccessMsg(`Campaign "${camp.name}" deleted from Meta & AmarDokan.`);
+      setCampaignToDelete(null);
+    } else {
+      setMetaSyncMsg(res?.message || "Failed to delete campaign on Meta.");
+      setCampaignToDelete(null);
+    }
+  };
+
+  // Trigger Live Two-Way Meta Ads Metrics Sync via Graph API backend endpoint
   const handleSyncMetaAds = async () => {
     setIsSyncingMeta(true);
     setMetaSyncMsg("");
     try {
-      const res = await apiClient.syncMetaAds({ adAccountId });
+      const res = await apiClient.syncMetaAdsTwoWay();
       if (res && res.success) {
-        setMetaSyncMsg(
-          `Meta Insights Synced! Spend: ৳${Number(res.totalSpend || 0).toLocaleString()} (${res.totalClicks || 0} clicks)`
-        );
-        if (res.campaigns && res.campaigns.length > 0) {
-          const syncedCustom = res.campaigns.map((mc, idx) => ({
-            id: `meta-${mc.id || idx}`,
-            campaignNumber: allCampaigns.length + idx + 1,
-            name: `Product Campaign ${allCampaigns.length + idx + 1}: ${mc.name || "Meta Live Ad"} (Facebook Ads)`,
-            source: "facebook",
-            productId: "all",
-            productName: "Entire Store Catalog",
-            spend: Number(mc.spend) || 0,
-            clicks: Number(mc.clicks) || 0,
-            baseOrders: Number(mc.actions || 0),
-            baseRevenue: Number(mc.actions || 0) * 2000,
-            isMetaLive: true,
-          }));
-          saveCustomCampaigns([...syncedCustom, ...customCampaigns.filter((c) => !c.isMetaLive)]);
-        }
+        if (res.connection) setMetaConnection(res.connection);
+        if (Array.isArray(res.campaigns)) setSaasCampaigns(res.campaigns);
+        setMetaSyncMsg(res.message || "Two-way synced Meta Campaigns, AdSets, Ads & Live ROAS!");
       } else {
-        setMetaSyncMsg(res?.message || ("Meta sync failed"));
+        setMetaSyncMsg(res?.message || "Meta sync failed");
       }
     } catch (err) {
       setMetaSyncMsg(err.message || "Meta sync failed");
     } finally {
       setIsSyncingMeta(false);
-      setTimeout(() => setMetaSyncMsg(""), 6000);
+      setTimeout(() => setMetaSyncMsg(""), 6500);
     }
   };
 
@@ -763,8 +1047,8 @@ const AdminMarketing = ({
       source: newCampSource,
       productId: newCampProductId || "all",
       productName: prodName,
-      spend: Number(newCampSpend) || 3000,
-      clicks: Number(newCampClicks) || 1200,
+      spend: Number(newCampSpend) || 0,
+      clicks: Number(newCampClicks) || 0,
       baseOrders: 0,
       baseRevenue: 0,
       isCustom: true,
@@ -783,129 +1067,155 @@ const AdminMarketing = ({
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header (Only in Marketing & CAPI view — omitted in Ads Campaigns view) */}
+      {!isCampaignsView && (
       <div className="bg-white rounded-3xl p-6 border border-neutral-200 shadow-xs flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">
-              {"Attribution & Tracking Engine"}
+              {"Meta Pixel & Conversions API"}
             </span>
-            {isActive && pixelId ? (
+            {isActive && activePixelValue ? (
               <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-100/80 px-2.5 py-1 rounded-full">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>{"Live & Connected with Meta"}</span>
+                <span>{`Live Meta Pixel (${activePixelValue})`}</span>
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full">
                 <span className="w-2 h-2 rounded-full bg-amber-400" />
-                <span>{"Tracking Paused / Setup Needed"}</span>
+                <span>{"Pixel Setup Needed"}</span>
               </span>
             )}
           </div>
           <h1 className="text-2xl font-black text-neutral-900 mt-2">
-            {"Marketing & CAPI Tracking Hub"}
+            {"Meta Pixel & CAPI Tracking Hub"}
           </h1>
           <p className="text-xs text-neutral-500 mt-1">
-            {"Meta Pixel + Meta Conversions API (CAPI) deduplication, GA4 e-commerce events and dynamic product targeting."}
+            {"Configure your Meta Pixel ID & CAPI, view real-time deduplicated events, and inspect product view/click/purchase charts directly here."}
           </p>
         </div>
 
-        {/* Quick status pill */}
-        <div className="flex items-center gap-2 bg-neutral-50 p-2.5 rounded-2xl border border-neutral-200 text-xs">
-          <Activity className="w-4 h-4 text-emerald-600" />
-          <div className="text-left">
-            <div className="text-[10px] text-neutral-400 font-semibold uppercase">{"Active Scope"}</div>
-            <div className="font-bold text-neutral-800">
-              {targetScope === "GLOBAL" && ("🌐 Global (Entire Store)")}
-              {targetScope === "PRODUCT" && ("📦 Specific Product")}
-              {targetScope === "LANDING" && ("🚀 Specific Landing")}
+        {/* Setup Guide Re-open Button + Active Scope pill */}
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setShowBanglaGuide((prev) => !prev)}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs border transition-all cursor-pointer ${
+              showBanglaGuide
+                ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-xs"
+                : "bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300"
+            }`}
+            title={showBanglaGuide ? "Hide Setup Guide" : "Open Meta Pixel Setup Guide"}
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>{showBanglaGuide ? "Hide Guide" : "Setup Guide"}</span>
+          </button>
+
+          <div className="flex items-center gap-2 bg-neutral-50 p-2.5 rounded-2xl border border-neutral-200 text-xs">
+            <Activity className="w-4 h-4 text-emerald-600" />
+            <div className="text-left">
+              <div className="text-[10px] text-neutral-400 font-semibold uppercase">{"Active Scope"}</div>
+              <div className="font-bold text-neutral-800">
+                {targetScope === "PRODUCT"
+                  ? `📦 Specific Product${selectedScopeProduct ? `: ${getProductName(selectedScopeProduct)}` : ""}`
+                  : "🌐 Global (Entire Store)"}
+              </div>
             </div>
           </div>
         </div>
       </div>
+      )}
 
-      {/* Campaign Performance Table with Pagination & Controls */}
+      {/* Campaign Performance Table with Pagination & Controls (Only in Ads Campaigns menu) */}
+      {isCampaignsView && (
+      <>
+      <MetaConnectionBar
+        connection={metaConnection}
+        shopName={themeConfig?.shop?.shopName || themeConfig?.shop?.name || "AmarDokan"}
+        hasServerOAuthApp={hasServerOAuthApp}
+        onConnectionUpdated={(nextConn) => {
+          setMetaConnection(nextConn);
+          loadSaasAdsWorkspace();
+        }}
+      />
+
       <div className="bg-white rounded-3xl p-6 border border-neutral-200 shadow-xs space-y-5">
-        {/* Top Header & Summary Pills */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
+        {/* Top Header & Single-Line Action Toolbar */}
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-emerald-600" />
-              <h3 className="text-base font-bold text-neutral-900">
-                {"Ad Campaigns & ROAS Metrics"}
+              <BarChart3 className="w-5 h-5 text-emerald-600 shrink-0" />
+              <h3 className="text-base font-bold text-neutral-900 truncate">
+                {"Ad Campaigns, Live Boosts & ROAS Matrix"}
               </h3>
             </div>
             <p className="text-xs text-neutral-400 mt-0.5">
-              {"Facebook, TikTok, Google & Instagram ad spend vs verified order revenue from customer funnel"}
+              {"Product Boost, Page Post Boost & Sales Campaigns via Meta Graph API v19.0"}
             </p>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap xl:flex-nowrap shrink-0">
             <button
-              onClick={() => setIsAddCampaignOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+              onClick={() => {
+                setBoostWizardMode("QUICK_BOOST_PRODUCT");
+                setIsBoostWizardOpen(true);
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer whitespace-nowrap"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>{"Create Campaign"}</span>
+              <Zap className="w-3.5 h-3.5" />
+              <span>{"Quick Boost"}</span>
             </button>
 
-            {/* Direct Meta Events Manager Link */}
-            <a
-              href={pixelId ? `https://business.facebook.com/events_manager2/list/dataset/${pixelId}` : "https://business.facebook.com/events_manager2"}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs border border-blue-200 transition-colors cursor-pointer"
-              title={"Open Meta Events Manager in new tab"}
-            >
-              <ExternalLink className="w-3.5 h-3.5 text-blue-600" />
-              <span>Events Manager</span>
-            </a>
-
-            {/* Direct Meta Commerce Manager Link */}
-            <a
-              href="https://business.facebook.com/commerce"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold text-xs border border-purple-200 transition-colors cursor-pointer"
-              title={"Open Meta Commerce Manager in new tab"}
-            >
-              <ExternalLink className="w-3.5 h-3.5 text-purple-600" />
-              <span>Commerce Manager</span>
-            </a>
-
-            {/* Bangla Setup Guide Toggle */}
             <button
-              onClick={() => setShowBanglaGuide(!showBanglaGuide)}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs border transition-all cursor-pointer ${
-                showBanglaGuide
-                  ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-xs"
-                  : "bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300"
-              }`}
-              title={"Toggle Meta Setup Instructions & Suggestions in Bangla"}
+              onClick={() => {
+                setBoostWizardMode("QUICK_BOOST_POST");
+                setIsBoostWizardOpen(true);
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer whitespace-nowrap"
             >
-              <BookOpen className="w-3.5 h-3.5" />
-              <span>{"Meta Guide (Bangla)"}</span>
+              <Facebook className="w-3.5 h-3.5" />
+              <span>{"Boost Post"}</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setBoostWizardMode("PRODUCT_SALES");
+                setIsBoostWizardOpen(true);
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <Rocket className="w-3.5 h-3.5" />
+              <span>{"Sales Campaign"}</span>
+            </button>
+
+            <button
+              onClick={() => setIsAddCampaignOpen(true)}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-bold text-xs border border-neutral-200 transition-colors cursor-pointer whitespace-nowrap"
+              title="Create manual UTM tracking link for TikTok / Google / YouTube"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{"+ UTM"}</span>
             </button>
 
             <button
               onClick={handleSyncMetaAds}
               disabled={isSyncingMeta}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
-              title={"Sync live impressions, spend and clicks from Meta Graph API"}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 disabled:opacity-50 text-blue-800 border border-blue-200 font-bold text-xs transition-colors cursor-pointer whitespace-nowrap"
+              title={"Two-Way Sync Campaigns, AdSets, Ads, Billing Guard & Live Order ROAS"}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncingMeta ? "animate-spin" : ""}`} />
-              <span>{isSyncingMeta ? ("Syncing...") : ("Sync Meta Ads")}</span>
+              <span>{isSyncingMeta ? "Syncing..." : "Sync Meta"}</span>
             </button>
 
             <button
               onClick={handleCopyCatalogXml}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-bold text-xs border border-neutral-300 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-bold text-xs border border-neutral-300 transition-colors cursor-pointer whitespace-nowrap"
               title={"Copy Meta Advantage+ & Commerce Manager Product Catalog XML Feed URL"}
             >
               {copiedCatalogXml ? (
                 <>
                   <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="text-emerald-700">{"XML Copied!"}</span>
+                  <span className="text-emerald-700">{"Copied!"}</span>
                 </>
               ) : (
                 <>
@@ -915,7 +1225,7 @@ const AdminMarketing = ({
               )}
             </button>
 
-            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-3 py-1.5 rounded-xl">
+            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-1.5 rounded-xl whitespace-nowrap">
               {`ROAS: ${averageRoas}`}
             </span>
           </div>
@@ -1053,6 +1363,8 @@ const AdminMarketing = ({
                 paginatedCampaigns.map((camp, idx) => {
                   const globalIdx = startIndex + idx;
                   const isCopied = copiedLinkIndex === globalIdx;
+                  const isExpanded = Boolean(expandedCampaignIds[camp.id]);
+                  const adsetsList = Array.isArray(camp.adsets) ? camp.adsets : [];
 
                   let sourceColor = "bg-neutral-100 text-neutral-800 border-neutral-200";
                   if (camp.source === "facebook") sourceColor = "bg-blue-50 text-blue-700 border-blue-200";
@@ -1062,27 +1374,68 @@ const AdminMarketing = ({
                   else if (camp.source === "youtube") sourceColor = "bg-rose-50 text-rose-700 border-rose-200";
 
                   return (
-                    <tr key={camp.id || idx} className={`hover:bg-neutral-50/80 transition-colors ${camp.isPaused ? "opacity-60 bg-neutral-50/40" : ""}`}>
-                      <td className="py-3 px-3.5 max-w-[260px]">
-                        <div className="font-bold text-neutral-900 truncate" title={camp.name}>
-                          {camp.name}
-                        </div>
-                        <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 mt-1">
-                          <Package className="w-3 h-3 text-emerald-600 flex-shrink-0" />
-                          <span className="truncate" title={camp.productName}>
-                            {camp.productName}
-                          </span>
+                    <Fragment key={camp.id || idx}>
+                    <tr className={`hover:bg-neutral-50/80 transition-colors ${camp.isPaused ? "opacity-70 bg-neutral-50/40" : ""}`}>
+                      <td className="py-3 px-3.5 max-w-[290px]">
+                        <div className="flex items-start gap-2">
+                          {camp.isSaasCampaign && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedCampaignIds((prev) => ({ ...prev, [camp.id]: !prev[camp.id] }))
+                              }
+                              className="mt-0.5 p-1 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-700 shrink-0 cursor-pointer"
+                              title="Drill down into AdSets & Ads"
+                            >
+                              {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="font-bold text-neutral-900 truncate flex items-center gap-1.5" title={camp.name}>
+                              <span className="truncate">{camp.name}</span>
+                              {camp.isSaasCampaign && (
+                                <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0 font-extrabold">
+                                  {camp.campaignType === "QUICK_BOOST_POST" ? "Post Boost" : camp.campaignType === "QUICK_BOOST_PRODUCT" ? "Product Boost" : "Meta Live"}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[11px] text-neutral-500 mt-1 flex-wrap">
+                              <Package className="w-3 h-3 text-emerald-600 flex-shrink-0" />
+                              <span className="truncate" title={camp.productName}>
+                                {camp.productName}
+                              </span>
+                              {camp.metaCampaignId && (
+                                <span className="text-[10px] font-mono text-neutral-400">
+                                  #{camp.metaCampaignId}
+                                </span>
+                              )}
+                            </div>
+                            {camp.billingGuardAlert && (
+                              <div className="mt-1 text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                                ⚠️ {camp.billingGuardAlert}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="py-3 px-3 capitalize">
                         <span className={`px-2 py-0.5 rounded-md font-bold text-[11px] border ${sourceColor}`}>
                           {camp.source}
                         </span>
+                        {camp.effectiveStatus && camp.isSaasCampaign && (
+                          <div className="text-[9px] font-mono font-bold text-neutral-500 mt-1">
+                            {camp.effectiveStatus}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-3 text-center">
                         <button
                           type="button"
-                          onClick={() => handleToggleCampaignStatus(camp)}
+                          onClick={() =>
+                            camp.isSaasCampaign
+                              ? handleToggleSaasCampaignStatus(camp)
+                              : handleToggleCampaignStatus(camp)
+                          }
                           className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer border shadow-2xs ${
                             camp.isPaused
                               ? "bg-neutral-100 text-neutral-600 border-neutral-300 hover:bg-neutral-200"
@@ -1090,8 +1443,8 @@ const AdminMarketing = ({
                           }`}
                           title={
                             camp.isPaused
-                              ? ("Click to Activate Campaign (Turn ON)")
-                              : ("Click to Pause Campaign (Turn OFF)")
+                              ? "Click to Activate Campaign on Meta & Store (Turn ON)"
+                              : "Click to Pause Campaign on Meta & Store (Turn OFF)"
                           }
                         >
                           <span
@@ -1100,17 +1453,25 @@ const AdminMarketing = ({
                             }`}
                           />
                           <span>
-                            {camp.isPaused
-                              ? ("Paused (OFF)")
-                              : ("Active (ON)")}
+                            {camp.isPaused ? "Paused (OFF)" : "Active (ON)"}
                           </span>
                         </button>
+                        {camp.isSaasCampaign && Number(camp.dailyBudget || 0) > 0 && (
+                          <div className="text-[10px] font-mono text-neutral-500 mt-1">
+                            {Number(camp.dailyBudget).toLocaleString()} {camp.currency || "BDT"}/d
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-3 text-right text-rose-600 font-bold font-mono">
                         {formatBDT(camp.spend)}
                       </td>
                       <td className="py-3 px-3 text-center text-neutral-700 font-mono font-medium">
-                        {camp.clicks.toLocaleString()}
+                        <div>{Number(camp.clicks || 0).toLocaleString()}</div>
+                        {camp.isSaasCampaign && Number(camp.impressions || 0) > 0 && (
+                          <div className="text-[10px] text-neutral-400">
+                            {Number(camp.impressions).toLocaleString()} imp
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-3 text-center">
                         <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 font-bold px-2 py-0.5 rounded-full border border-emerald-200/60 font-mono">
@@ -1133,14 +1494,16 @@ const AdminMarketing = ({
                       </td>
                       <td className="py-3 px-3 text-center">
                         <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                          <button
-                            onClick={() => handleEditLanding(camp)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-all cursor-pointer"
-                            title={"Edit Single-Product Campaign Landing in Admin"}
-                          >
-                            <Layers className="w-3 h-3 text-emerald-600" />
-                            <span>{"Edit Landing"}</span>
-                          </button>
+                          {(!camp.postId) && (
+                            <button
+                              onClick={() => handleEditLanding(camp)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-all cursor-pointer"
+                              title={"Edit Single-Product Campaign Landing in Admin"}
+                            >
+                              <Layers className="w-3 h-3 text-emerald-600" />
+                              <span>{"Edit Landing"}</span>
+                            </button>
+                          )}
                           <button
                             onClick={() => handleOpenLivePage(camp)}
                             className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold bg-neutral-100 hover:bg-neutral-200 text-neutral-700 transition-all cursor-pointer"
@@ -1182,6 +1545,125 @@ const AdminMarketing = ({
                         </div>
                       </td>
                     </tr>
+
+                    {/* Campaign -> AdSet -> Ad Drill-Down Dropdown */}
+                    {camp.isSaasCampaign && isExpanded && (
+                      <tr key={`${camp.id}-drill`} className="bg-neutral-50/90">
+                        <td colSpan={9} className="p-4 border-t border-neutral-200">
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between text-[11px] font-black text-neutral-700 uppercase">
+                              <span className="flex items-center gap-1.5">
+                                <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600" />
+                                <span>Ad Sets & Live Creative Review Drill-Down ({adsetsList.length} AdSets)</span>
+                              </span>
+                              <span className="text-[10px] font-mono text-neutral-500">
+                                Two-way synced with Meta Graph API
+                              </span>
+                            </div>
+
+                            {adsetsList.length === 0 ? (
+                              <div className="p-3 bg-white rounded-xl border border-neutral-200 text-neutral-400">
+                                No nested AdSets synced yet. Click "Sync Meta (2-Way)" above to pull full tree.
+                              </div>
+                            ) : (
+                              adsetsList.map((asItem) => {
+                                const adsList = Array.isArray(asItem.ads) ? asItem.ads : [];
+                                const targeting = asItem.targeting || {};
+                                const draftBudget = adSetBudgetEdits[asItem.id] ?? asItem.dailyBudget ?? 0;
+                                return (
+                                  <div key={asItem.id} className="bg-white rounded-2xl p-3.5 border border-neutral-200 space-y-3">
+                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-2.5 border-b border-neutral-100">
+                                      <div>
+                                        <div className="font-bold text-neutral-900 flex items-center gap-2">
+                                          <span>AdSet: {asItem.name}</span>
+                                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-neutral-100 text-neutral-600">
+                                            {asItem.optimizationGoal}
+                                          </span>
+                                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-50 text-blue-700">
+                                            {asItem.effectiveStatus}
+                                          </span>
+                                        </div>
+                                        <div className="text-[10px] text-neutral-500 mt-1 flex flex-wrap gap-2">
+                                          <span>Age: {targeting.age_min || 18}–{targeting.age_max || 55}</span>
+                                          <span>Spend: {Number(asItem.spend || 0).toLocaleString()} {camp.currency}</span>
+                                          <span>Clicks: {Number(asItem.clicks || 0).toLocaleString()}</span>
+                                          <span>CTR: {Number(asItem.ctr || 0).toFixed(2)}%</span>
+                                        </div>
+                                      </div>
+
+                                      {/* Two-Way Daily Budget Inline Editor */}
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-[10px] font-bold text-neutral-500">Daily ({camp.currency}):</span>
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          value={draftBudget}
+                                          onChange={(e) =>
+                                            setAdSetBudgetEdits((prev) => ({ ...prev, [asItem.id]: e.target.value }))
+                                          }
+                                          className="w-24 px-2 py-1 rounded-lg border border-neutral-200 font-mono text-xs"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSaveAdSetBudget(asItem)}
+                                          disabled={savingAdSetId === asItem.id}
+                                          className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] cursor-pointer disabled:opacity-50"
+                                        >
+                                          {savingAdSetId === asItem.id ? "Saving..." : "Update Meta"}
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {/* Nested Ads & Meta Policy Review Status */}
+                                    {adsList.length > 0 && (
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                                        {adsList.map((ad) => (
+                                          <div key={ad.id} className="p-2.5 rounded-xl bg-neutral-50 border border-neutral-200 flex items-start gap-2.5">
+                                            {ad.imageUrl && (
+                                              <img
+                                                src={ad.imageUrl}
+                                                alt=""
+                                                className="w-12 h-12 rounded-lg object-cover border border-neutral-200 shrink-0"
+                                              />
+                                            )}
+                                            <div className="min-w-0 flex-1">
+                                              <div className="font-bold text-neutral-900 truncate flex items-center justify-between gap-2">
+                                                <span className="truncate">{ad.headline || ad.name}</span>
+                                                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
+                                                  ad.effectiveStatus === "ACTIVE"
+                                                    ? "bg-emerald-100 text-emerald-800"
+                                                    : ad.effectiveStatus === "DISAPPROVED" || ad.effectiveStatus === "WITH_ISSUES"
+                                                    ? "bg-rose-100 text-rose-800"
+                                                    : "bg-amber-100 text-amber-800"
+                                                }`}>
+                                                  {ad.effectiveStatus}
+                                                </span>
+                                              </div>
+                                              {ad.primaryText && (
+                                                <p className="text-[10px] text-neutral-600 line-clamp-2 mt-0.5">{ad.primaryText}</p>
+                                              )}
+                                              <div className="text-[10px] text-neutral-400 mt-1">
+                                                Ad ID: {ad.metaAdId || ad.id} • Clicks: {ad.clicks || 0} • Spend: {Number(ad.spend || 0).toLocaleString()} {camp.currency}
+                                              </div>
+                                              {ad.reviewFeedback && Object.keys(ad.reviewFeedback).length > 0 && (
+                                                <div className="mt-1 text-[10px] text-rose-700 font-semibold">
+                                                  Policy Feedback: {JSON.stringify(ad.reviewFeedback)}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })
               )}
@@ -1442,7 +1924,26 @@ const AdminMarketing = ({
           </div>
         </div>
       )}
-      {showBanglaGuide && (
+      <MetaBoostWizardDrawer
+        isOpen={isBoostWizardOpen}
+        initialMode={boostWizardMode}
+        products={products}
+        connection={metaConnection}
+        onClose={() => setIsBoostWizardOpen(false)}
+        onLaunched={(createdCamp) => {
+          if (createdCamp) {
+            setSaasCampaigns((prev) => [createdCamp, ...prev]);
+            setActionSuccessMsg(
+              `Launched "${createdCamp.name}" on Meta! Campaign ID: ${createdCamp.metaCampaignId}`
+            );
+          }
+          loadSaasAdsWorkspace();
+        }}
+      />
+      </>
+      )}
+
+      {!isCampaignsView && showBanglaGuide && (
         <div className="bg-gradient-to-br from-amber-50/70 via-white to-orange-50/40 rounded-3xl p-6 border border-amber-200/90 shadow-xs space-y-4 animate-in fade-in duration-200">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-200/60 pb-4">
             <div className="flex items-center gap-3">
@@ -1653,14 +2154,15 @@ const AdminMarketing = ({
         </div>
       )}
 
-      {/* Tracking Configuration & Live Event Log */}
+      {/* Meta Pixel Configuration & Live Event / Chart Panel (Only in Marketing & CAPI menu) */}
+      {!isCampaignsView && (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Form Settings (Col 5) */}
+        {/* Form Settings (Col 6) */}
         <div className="lg:col-span-6 bg-white rounded-3xl p-6 border border-neutral-200 shadow-xs space-y-4 text-xs">
           <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
             <h3 className="font-bold text-sm text-neutral-900 flex items-center gap-1.5">
               <Target className="w-4 h-4 text-emerald-600" />
-              <span>{"Pixel & CAPI Configuration"}</span>
+              <span>{"Meta Pixel & CAPI Configuration"}</span>
             </h3>
             {/* Active Toggle */}
             <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -1670,7 +2172,7 @@ const AdminMarketing = ({
               <input
                 type="checkbox"
                 checked={isActive}
-                onChange={(e) => setIsActive(e.target.checked)}
+                onChange={(e) => handleToggleActive(e.target.checked)}
                 className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer"
               />
             </label>
@@ -1690,16 +2192,16 @@ const AdminMarketing = ({
             </div>
           )}
 
-          {/* Target Scope Selection */}
+          {/* Target Scope Selection (Entire Store vs Specific Product ONLY) */}
           <div className="space-y-1.5">
             <label className="block font-bold text-neutral-800">
               {"Target Tracking Scope:"}
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setTargetScope("GLOBAL")}
-                className={`py-2 px-2.5 rounded-xl border text-center font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                className={`py-2.5 px-3 rounded-xl border text-center font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
                   targetScope === "GLOBAL"
                     ? "bg-emerald-50 border-emerald-600 text-emerald-800 shadow-xs"
                     : "bg-neutral-50 border-neutral-200 text-neutral-600 hover:bg-neutral-100"
@@ -1712,7 +2214,7 @@ const AdminMarketing = ({
               <button
                 type="button"
                 onClick={() => setTargetScope("PRODUCT")}
-                className={`py-2 px-2.5 rounded-xl border text-center font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                className={`py-2.5 px-3 rounded-xl border text-center font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
                   targetScope === "PRODUCT"
                     ? "bg-emerald-50 border-emerald-600 text-emerald-800 shadow-xs"
                     : "bg-neutral-50 border-neutral-200 text-neutral-600 hover:bg-neutral-100"
@@ -1720,19 +2222,6 @@ const AdminMarketing = ({
               >
                 <Package className="w-4 h-4" />
                 <span className="text-[11px]">{"Specific Product"}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setTargetScope("LANDING")}
-                className={`py-2 px-2.5 rounded-xl border text-center font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
-                  targetScope === "LANDING"
-                    ? "bg-emerald-50 border-emerald-600 text-emerald-800 shadow-xs"
-                    : "bg-neutral-50 border-neutral-200 text-neutral-600 hover:bg-neutral-100"
-                }`}
-              >
-                <Layers className="w-4 h-4" />
-                <span className="text-[11px]">{"Landing Page"}</span>
               </button>
             </div>
           </div>
@@ -1759,32 +2248,8 @@ const AdminMarketing = ({
                 )}
               </select>
               <p className="text-[10px] text-neutral-500">
-                {"Pixel & CAPI will fire strictly when visitors view, cart, or purchase this product."}
+                {"Only events, views, clicks & purchases for this selected product will track and display in Live Event Stream & Charts."}
               </p>
-            </div>
-          )}
-
-          {/* Conditional Landing Page Dropdown */}
-          {targetScope === "LANDING" && (
-            <div className="p-3 bg-neutral-50 rounded-2xl border border-neutral-200 space-y-1.5 animate-in fade-in">
-              <label className="block font-bold text-neutral-800">
-                {"Select Campaign Landing Page:"}
-              </label>
-              <select
-                value={targetLandingSlug}
-                onChange={(e) => setTargetLandingSlug(e.target.value)}
-                className="w-full px-3 py-2 bg-white rounded-xl border border-neutral-300 font-medium text-neutral-800"
-              >
-                {landingPages.length === 0 ? (
-                  <option value="">{"Default Flash Sale"}</option>
-                ) : (
-                  landingPages.map((lp) => (
-                    <option key={lp.id} value={lp.slug}>
-                      {lp.title} (Slug: /{lp.slug})
-                    </option>
-                  ))
-                )}
-              </select>
             </div>
           )}
 
@@ -1809,7 +2274,7 @@ const AdminMarketing = ({
               type="text"
               value={pixelId}
               onChange={(e) => setPixelId(e.target.value)}
-              placeholder="e.g. 184729481920384"
+              placeholder="Enter your Meta Pixel ID"
               className="w-full px-3 py-2 bg-neutral-50 rounded-xl border border-neutral-300 font-mono text-neutral-900 focus:bg-white focus:ring-1 focus:ring-emerald-500"
             />
           </div>
@@ -1846,49 +2311,6 @@ const AdminMarketing = ({
               value={capiToken}
               onChange={(e) => setCapiToken(e.target.value)}
               placeholder="EAAG... (Generated in Meta Events Manager)"
-              className="w-full px-3 py-2 bg-neutral-50 rounded-xl border border-neutral-300 font-mono text-neutral-900 focus:bg-white focus:ring-1 focus:ring-emerald-500"
-            />
-          </div>
-
-          {/* Meta Ad Account ID (For Live Insights & Spend Sync) */}
-          <div>
-            <div className="flex justify-between items-center mb-1">
-              <label className="font-semibold text-neutral-700">
-                Meta Ad Account ID{" "}
-                <span className="text-[10px] text-neutral-400 font-normal">
-                  ({"Optional for Live Ad Spend Sync"})
-                </span>
-              </label>
-              <a
-                href="https://adsmanager.facebook.com/adsmanager"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:text-blue-800 text-[11px] font-bold inline-flex items-center gap-1 transition-colors"
-                title={"Find Ad Account ID in Meta Ads Manager"}
-              >
-                <span>{"Ads Manager"}</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
-            <input
-              type="text"
-              value={adAccountId}
-              onChange={(e) => setAdAccountId(e.target.value)}
-              placeholder="e.g. act_182930491823"
-              className="w-full px-3 py-2 bg-neutral-50 rounded-xl border border-neutral-300 font-mono text-neutral-900 focus:bg-white focus:ring-1 focus:ring-emerald-500"
-            />
-          </div>
-
-          {/* GA4 Measurement ID */}
-          <div>
-            <label className="block font-semibold text-neutral-700 mb-1">
-              Google Analytics 4 Measurement ID
-            </label>
-            <input
-              type="text"
-              value={ga4Id}
-              onChange={(e) => setGa4Id(e.target.value)}
-              placeholder="e.g. G-881920BD"
               className="w-full px-3 py-2 bg-neutral-50 rounded-xl border border-neutral-300 font-mono text-neutral-900 focus:bg-white focus:ring-1 focus:ring-emerald-500"
             />
           </div>
@@ -1974,7 +2396,7 @@ const AdminMarketing = ({
               </span>
             </div>
             <p className="text-[10px] text-neutral-500">
-              {"Clicking this sends a test signal to verify Meta Pixel & Server CAPI reception in Meta Events Manager."}
+              {"Clicking this sends a test signal to verify Meta Pixel & Server CAPI reception."}
             </p>
 
             <div className="flex gap-2">
@@ -1986,6 +2408,7 @@ const AdminMarketing = ({
                 <option value="Purchase">Purchase (৳2,500)</option>
                 <option value="AddToCart">AddToCart</option>
                 <option value="ViewContent">ViewContent</option>
+                <option value="ProductClick">ProductClick</option>
                 <option value="InitiateCheckout">InitiateCheckout</option>
               </select>
               <button
@@ -2011,29 +2434,69 @@ const AdminMarketing = ({
           </div>
         </div>
 
-        {/* Live Event Stream (Col 6) */}
-        <div className="lg:col-span-6 bg-white rounded-3xl p-6 border border-neutral-200 shadow-xs space-y-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <h3 className="text-sm font-bold text-neutral-900">
-                {"Live Event Stream & Deduplication"}
-              </h3>
-              <p className="text-[11px] text-neutral-400">
-                {"Browser pixel & server CAPI matched via shared event_id"}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
+        {/* Right Column (Col 6): 2 Clickable Bottom-Border Tabs -> Live Event Stream & Pixel Product Performance Chart */}
+        <div className="lg:col-span-6 bg-white rounded-3xl p-6 border border-neutral-200 shadow-xs flex flex-col gap-4">
+          {/* Header Tabs + Refresh / Real-time Controls in One Row */}
+          <div className="flex flex-wrap justify-between items-center gap-3 border-b border-neutral-200">
+            <div className="flex items-center gap-5">
               <button
+                type="button"
+                onClick={() => setRightPanelTab("stream")}
+                className={`pb-2.5 text-xs font-bold transition-colors border-b-2 -mb-px cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                  rightPanelTab === "stream"
+                    ? "border-emerald-600 text-emerald-700"
+                    : "border-transparent text-neutral-500 hover:text-neutral-800"
+                }`}
+              >
+                <Activity className="w-3.5 h-3.5" />
+                <span>{"Live Event Stream"}</span>
+                <span className="text-[10px] font-mono bg-neutral-100 text-neutral-700 px-1.5 py-0.5 rounded-full">
+                  {filteredRecentEvents.length}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRightPanelTab("chart")}
+                className={`pb-2.5 text-xs font-bold transition-colors border-b-2 -mb-px cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                  rightPanelTab === "chart"
+                    ? "border-emerald-600 text-emerald-700"
+                    : "border-transparent text-neutral-500 hover:text-neutral-800"
+                }`}
+              >
+                <BarChart3 className="w-3.5 h-3.5" />
+                <span>{"Pixel Product Performance Chart"}</span>
+              </button>
+            </div>
+            <div className="flex items-center gap-2 pb-2 shrink-0">
+              <button
+                type="button"
                 onClick={async () => {
                   try {
-                    const events = await apiClient.getMarketingEvents();
-                    if (events && events.length > 0) setRecentEvents(events);
+                    const bundle = await apiClient.getMarketingEventsBundle();
+                    if (Array.isArray(bundle?.events)) setRecentEvents(bundle.events);
+                    if (Array.isArray(bundle?.productAnalytics)) {
+                      setServerProductStats(bundle.productAnalytics);
+                    }
                   } catch {}
                 }}
-                className="p-1 rounded-lg hover:bg-neutral-100 text-neutral-500 transition-colors"
-                title={"Refresh event logs"}
+                className="p-1.5 rounded-lg hover:bg-neutral-100 text-neutral-500 transition-colors cursor-pointer"
+                title={"Refresh event logs & charts"}
               >
                 <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const res = await apiClient.clearMarketingEvents();
+                  if (res?.success) {
+                    setRecentEvents([]);
+                    setServerProductStats([]);
+                  }
+                }}
+                className="p-1.5 rounded-lg hover:bg-rose-50 text-neutral-400 hover:text-rose-600 transition-colors cursor-pointer"
+                title={"Reset / Clear Pixel Event History"}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
               </button>
               <span className="flex items-center gap-1 text-[11px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
@@ -2042,98 +2505,321 @@ const AdminMarketing = ({
             </div>
           </div>
 
-          <div className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
-            {recentEvents.length === 0 ? (
-              <div className="text-center py-12 text-neutral-400 text-xs">
-                {"No event logs yet. Fire a test event or place an order to see live tracking."}
-              </div>
-            ) : (
-              recentEvents.map((ev, i) => {
-                const { exactTimeStr, relativeStr } = formatEventTimes(
-                  ev.timestamp,
-                  isEnglish,
-                  nowTime
-                );
+          {/* Panel 1: Live Event Stream */}
+          {rightPanelTab === "stream" && (
+            <div className="space-y-2.5 max-h-[520px] overflow-y-auto pr-1">
+              {!isActive ? (
+                <div className="p-6 rounded-2xl bg-amber-50/70 border border-dashed border-amber-300 text-center space-y-1.5">
+                  <p className="text-xs font-bold text-amber-900">
+                    {"Meta Pixel & CAPI Tracking is Deactivated (Paused)"}
+                  </p>
+                  <p className="text-[11px] text-amber-800/80">
+                    {"Check the Active box on the left panel to resume tracking and view live browser & server events."}
+                  </p>
+                </div>
+              ) : !activePixelValue ? (
+                <div className="p-6 rounded-2xl bg-neutral-50 border border-dashed border-neutral-300 text-center space-y-1.5">
+                  <p className="text-xs font-bold text-neutral-700">
+                    {"Meta Pixel ID is not configured yet"}
+                  </p>
+                  <p className="text-[11px] text-neutral-500">
+                    {"Enter and save your Meta Pixel ID on the left panel to stream live browser & server events dynamically."}
+                  </p>
+                </div>
+              ) : filteredRecentEvents.length === 0 ? (
+                <div className="text-center py-12 text-neutral-400 text-xs">
+                  {targetScope === "PRODUCT"
+                    ? "No events recorded yet for this selected product."
+                    : "No event logs yet. Fire a test event or browse/place an order to see live tracking."}
+                </div>
+              ) : (
+                filteredRecentEvents.map((ev, i) => {
+                  const { exactTimeStr, relativeStr } = formatEventTimes(
+                    ev.timestamp,
+                    isEnglish,
+                    nowTime
+                  );
 
-                return (
-                  <div
-                    key={ev.id || ev.eventId || i}
-                    className="p-3 bg-neutral-50 rounded-2xl border border-neutral-200 text-xs space-y-2 hover:border-neutral-300 transition-colors shadow-2xs"
-                  >
-                    <div className="flex justify-between items-center">
-                      <span className={`font-bold px-2 py-0.5 rounded-md border text-[11px] ${
-                        ev.eventName === 'Purchase' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                        ev.eventName === 'AddToCart' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                        ev.eventName === 'ViewContent' ? 'bg-purple-50 text-purple-700 border-purple-200' :
-                        ev.eventName === 'InitiateCheckout' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                        'bg-white text-neutral-800 border-neutral-200'
-                      }`}>
-                        {ev.eventName}
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] font-bold text-neutral-800 font-mono">
-                          {exactTimeStr}
+                  return (
+                    <div
+                      key={ev.id || ev.eventId || i}
+                      className="p-2.5 bg-neutral-50 rounded-2xl border border-neutral-200 text-xs space-y-1.5 hover:border-neutral-300 transition-colors shadow-2xs"
+                    >
+                      <div className="flex justify-between items-center">
+                        <span className={`font-bold px-2 py-0.5 rounded-md border text-[10px] ${
+                          ev.eventName === 'Purchase' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                          ev.eventName === 'AddToCart' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                          ev.eventName === 'ProductClick' ? 'bg-cyan-50 text-cyan-700 border-cyan-200' :
+                          ev.eventName === 'ViewContent' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                          ev.eventName === 'InitiateCheckout' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                          'bg-white text-neutral-800 border-neutral-200'
+                        }`}>
+                          {ev.eventName}
                         </span>
-                        <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100/80 px-1.5 py-0.5 rounded-md font-mono">
-                          {relativeStr}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Product Name Display - Prominently Above ID */}
-                    <div className="flex items-center gap-2 py-1.5 px-2.5 bg-white rounded-xl border border-neutral-200/90 shadow-2xs">
-                      <Package className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-                      <div className="min-w-0 flex-1 flex items-center justify-between gap-1.5">
-                        <span
-                          className="font-bold text-xs text-neutral-900 truncate"
-                          title={ev.productName || ev.name || ev.content_name || ""}
-                        >
-                          {ev.productName ||
-                            ev.name ||
-                            ev.content_name ||
-                            (ev.eventName === "PageView"
-                              ? "Storefront Navigation (All Pages)"
-                              : ev.orderId
-                              ? `${"Order"} #${ev.orderId}`
-                              : "General Store Catalog")}
-                        </span>
-                        {ev.productId && (
-                          <span className="text-[10px] font-mono text-neutral-500 bg-neutral-100 px-1.5 py-0.5 rounded flex-shrink-0">
-                            #{ev.productId}
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-neutral-800 font-mono">
+                            {exactTimeStr}
                           </span>
-                        )}
+                          <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100/80 px-1.5 py-0.5 rounded-md font-mono">
+                            {relativeStr}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Product Name Display */}
+                      <div className="flex items-center gap-2 py-1 px-2 bg-white rounded-xl border border-neutral-200/90 shadow-2xs">
+                        <Package className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                        <div className="min-w-0 flex-1 flex items-center justify-between gap-1.5">
+                          <span
+                            className="font-bold text-[11px] text-neutral-900 truncate"
+                            title={ev.productName || ev.name || ev.content_name || ""}
+                          >
+                            {ev.productName ||
+                              ev.name ||
+                              ev.content_name ||
+                              (ev.eventName === "PageView"
+                                ? "Storefront Navigation (All Pages)"
+                                : ev.orderId
+                                ? `${"Order"} #${ev.orderId}`
+                                : "General Store Catalog")}
+                          </span>
+                          {ev.productId && (
+                            <span className="text-[10px] font-mono text-neutral-500 bg-neutral-100 px-1.5 py-0.5 rounded flex-shrink-0">
+                              #{ev.productId}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between text-[10px] text-neutral-600 gap-1">
+                        <span className="font-mono text-neutral-500 truncate max-w-[200px]" title={ev.eventId}>
+                          ID: {ev.eventId}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <span className="bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">
+                            Browser [OK]
+                          </span>
+                          <span className="bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded">
+                            CAPI [OK]
+                          </span>
+                          {ev.value ? (
+                            <span className="font-bold text-neutral-800 ml-1">৳{Number(ev.value).toLocaleString()}</span>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
+                  );
+                })
+              )}
+            </div>
+          )}
 
-                    <div className="flex flex-wrap items-center justify-between text-[11px] text-neutral-600 gap-1 pt-0.5">
-                      <span className="font-mono text-[10px] text-neutral-500 truncate max-w-[210px]" title={ev.eventId}>
-                        ID: {ev.eventId}
+          {/* Panel 2: Pixel Product Performance Chart */}
+          {rightPanelTab === "chart" && (
+            <div className="space-y-3.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] font-bold text-neutral-600">
+                  {targetScope === "PRODUCT" && selectedScopeProduct
+                    ? `Filtered Scope: ${getProductName(selectedScopeProduct)}`
+                    : "Scope: Entire Store (All Products)"}
+                </span>
+                <span
+                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                    activePixelValue
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                      : "bg-amber-50 text-amber-700 border-amber-200"
+                  }`}
+                >
+                  {activePixelValue ? `Pixel: ${activePixelValue}` : "Pixel ID Not Set"}
+                </span>
+              </div>
+
+              {!isActive ? (
+                <div className="p-6 rounded-2xl bg-amber-50/70 border border-dashed border-amber-300 text-center space-y-1.5">
+                  <p className="text-xs font-bold text-amber-900">
+                    {"Meta Pixel & CAPI Tracking is Deactivated (Paused)"}
+                  </p>
+                  <p className="text-[11px] text-amber-800/80">
+                    {"Check the Active box on the left panel to display product view, click & purchase charts."}
+                  </p>
+                </div>
+              ) : !activePixelValue ? (
+                <div className="p-6 rounded-2xl bg-neutral-50 border border-dashed border-neutral-300 text-center space-y-1.5">
+                  <p className="text-xs font-bold text-neutral-700">
+                    {"Enter & Save your Meta Pixel ID on the left panel"}
+                  </p>
+                  <p className="text-[11px] text-neutral-500">
+                    {"Once your Pixel ID is connected, Most Viewed, Most Clicked & Most Purchased product charts will populate dynamically from live store interactions."}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* 3 Highlight Cards: Most Viewed / Most Clicked / Most Purchased */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="p-2.5 rounded-2xl bg-purple-50/80 border border-purple-200 space-y-0.5">
+                      <span className="text-[10px] font-bold uppercase text-purple-700 block">
+                        {"Most Viewed"}
                       </span>
-                      <div className="flex items-center gap-1">
-                        <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-1.5 py-0.5 rounded">
-                          Browser [OK]
-                        </span>
-                        <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded">
-                          CAPI [OK]
-                        </span>
+                      <div className="text-xs font-black text-neutral-900 truncate" title={pixelProductInsights.topViewed?.productName || "—"}>
+                        {pixelProductInsights.topViewed?.productName || "No views yet"}
                       </div>
+                      <span className="text-[11px] font-extrabold text-purple-700">
+                        {`${pixelProductInsights.topViewed?.views || 0} views`}
+                      </span>
                     </div>
 
-                    {ev.value ? (
-                      <div className="text-[11px] text-neutral-500 flex justify-between pt-1 border-t border-neutral-200/50">
-                        <span>{"Tracked Value:"}</span>
-                        <span className="font-bold text-neutral-800">৳{Number(ev.value).toLocaleString()}</span>
+                    <div className="p-2.5 rounded-2xl bg-blue-50/80 border border-blue-200 space-y-0.5">
+                      <span className="text-[10px] font-bold uppercase text-blue-700 block">
+                        {"Most Clicked"}
+                      </span>
+                      <div className="text-xs font-black text-neutral-900 truncate" title={pixelProductInsights.topClicked?.productName || "—"}>
+                        {pixelProductInsights.topClicked?.productName || "No clicks yet"}
                       </div>
-                    ) : null}
+                      <span className="text-[11px] font-extrabold text-blue-700">
+                        {`${pixelProductInsights.topClicked?.clicks || 0} clicks`}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 rounded-2xl bg-emerald-50/80 border border-emerald-200 space-y-0.5">
+                      <span className="text-[10px] font-bold uppercase text-emerald-700 block">
+                        {"Most Purchased"}
+                      </span>
+                      <div className="text-xs font-black text-neutral-900 truncate" title={pixelProductInsights.topPurchased?.productName || "—"}>
+                        {pixelProductInsights.topPurchased?.productName || "No orders yet"}
+                      </div>
+                      <span className="text-[11px] font-extrabold text-emerald-700">
+                        {`${pixelProductInsights.topPurchased?.purchases || 0} sold`}
+                      </span>
+                    </div>
                   </div>
-                );
-              })
-            )}
-          </div>
+
+                  {/* Metric Filter Tabs + Legend */}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1 text-[10px]">
+                      {[
+                        { id: "ALL", label: "All" },
+                        { id: "VIEWS", label: `Views (${pixelProductInsights.totals.views})` },
+                        { id: "CLICKS", label: `Clicks (${pixelProductInsights.totals.clicks})` },
+                        { id: "PURCHASES", label: `Purchased (${pixelProductInsights.totals.purchases})` },
+                      ].map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setChartMetricTab(tab.id)}
+                          className={`px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer ${
+                            chartMetricTab === tab.id
+                              ? "bg-neutral-900 text-white"
+                              : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2.5 text-[10px] font-semibold text-neutral-600">
+                      <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-xs bg-purple-500 inline-block" />
+                        {"Views"}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-xs bg-blue-500 inline-block" />
+                        {"Clicks"}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-xs bg-emerald-500 inline-block" />
+                        {"Purchased"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Grouped Horizontal Bar Chart */}
+                  <div className="space-y-2.5 bg-neutral-50/70 rounded-2xl p-3.5 border border-neutral-200/80 max-h-[360px] overflow-y-auto">
+                    {pixelProductInsights.rows.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-neutral-400">
+                        {targetScope === "PRODUCT"
+                          ? "No interactions recorded yet for this selected product."
+                          : "No product interactions recorded yet. Browse products, click Add to Cart, or place an order to see live charts."}
+                      </div>
+                    ) : (
+                      (() => {
+                        const maxMetricVal = Math.max(
+                          ...pixelProductInsights.rows.flatMap((r) =>
+                            chartMetricTab === "VIEWS"
+                              ? [r.views]
+                              : chartMetricTab === "CLICKS"
+                              ? [r.clicks]
+                              : chartMetricTab === "PURCHASES"
+                              ? [r.purchases]
+                              : [r.views, r.clicks, r.purchases]
+                          ),
+                          1
+                        );
+
+                        return pixelProductInsights.rows.map((row) => {
+                          const viewsPct = Math.round((row.views / maxMetricVal) * 100);
+                          const clicksPct = Math.round((row.clicks / maxMetricVal) * 100);
+                          const purchasesPct = Math.round((row.purchases / maxMetricVal) * 100);
+                          const showViews = chartMetricTab === "ALL" || chartMetricTab === "VIEWS";
+                          const showClicks = chartMetricTab === "ALL" || chartMetricTab === "CLICKS";
+                          const showPurchases = chartMetricTab === "ALL" || chartMetricTab === "PURCHASES";
+
+                          return (
+                            <div key={row.key} className="space-y-1">
+                              <div className="flex items-center justify-between text-[11px] gap-2">
+                                <span className="font-bold text-neutral-900 truncate" title={row.productName}>
+                                  {row.productName}
+                                </span>
+                                <span className="text-[10px] font-mono text-neutral-500 shrink-0">
+                                  {`${row.views}v • ${row.clicks}c • ${row.purchases}p${
+                                    row.revenue > 0 ? ` (${formatBDT(row.revenue)})` : ""
+                                  }`}
+                                </span>
+                              </div>
+                              <div className="space-y-1">
+                                {showViews && (
+                                  <div className="h-1.5 w-full bg-white rounded-full overflow-hidden border border-neutral-200/60">
+                                    <div
+                                      className="h-full bg-purple-500 rounded-full transition-all duration-300"
+                                      style={{ width: `${row.views > 0 ? Math.max(4, viewsPct) : 0}%` }}
+                                      title={`Views: ${row.views}`}
+                                    />
+                                  </div>
+                                )}
+                                {showClicks && (
+                                  <div className="h-1.5 w-full bg-white rounded-full overflow-hidden border border-neutral-200/60">
+                                    <div
+                                      className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                                      style={{ width: `${row.clicks > 0 ? Math.max(4, clicksPct) : 0}%` }}
+                                      title={`Clicks: ${row.clicks}`}
+                                    />
+                                  </div>
+                                )}
+                                {showPurchases && (
+                                  <div className="h-1.5 w-full bg-white rounded-full overflow-hidden border border-neutral-200/60">
+                                    <div
+                                      className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                                      style={{ width: `${row.purchases > 0 ? Math.max(4, purchasesPct) : 0}%` }}
+                                      title={`Purchased: ${row.purchases}`}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
+      )}
     </div>
   );
 };
 
 export { AdminMarketing };
+export default AdminMarketing;
