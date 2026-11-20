@@ -3,7 +3,6 @@ import {
   X,
   Printer,
   Truck,
-  AlertTriangle,
   User,
   Phone,
   MapPin,
@@ -202,30 +201,6 @@ const AdminOrderDetailModal = ({
                   </button>
                 </div>
               )}
-            </div>
-
-            {/* Fraud Risk Assessment */}
-            <div
-              className={`p-3.5 rounded-2xl border text-xs space-y-1 ${
-                order.riskScore < 20
-                  ? "bg-emerald-50 border-emerald-200 text-emerald-900"
-                  : order.riskScore < 50
-                  ? "bg-amber-50 border-amber-200 text-amber-900"
-                  : "bg-rose-50 border-rose-200 text-rose-900"
-              }`}
-            >
-              <div className="flex items-center justify-between font-bold">
-                <span className="flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  <span>{"Order Risk & Verification Score"}</span>
-                </span>
-                <span className="font-mono text-sm">{order.riskScore} / 100</span>
-              </div>
-              <p className="text-[11px]">
-                {order.riskFactors?.length > 0
-                  ? `${"Flags:"} ${order.riskFactors.join(", ")}`
-                  : "No anomalies detected. Valid phone number and location."}
-              </p>
             </div>
           </div>
 
