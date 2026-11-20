@@ -131,45 +131,6 @@ export const AdminCampaign = ({
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
-      {/* Top Banner */}
-      <div className="bg-gradient-to-r from-emerald-950 via-neutral-900 to-neutral-950 p-6 rounded-3xl border border-emerald-800/40 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold mb-2">
-            <Zap className="w-3.5 h-3.5" />
-            <span>Special Campaign Management</span>
-          </div>
-          <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-            Campaign & Special Offer Configuration
-          </h2>
-          <p className="text-xs text-neutral-400 mt-1 max-w-2xl">
-            Select any product for campaign with 1 click. The selected product will be featured live on{" "}
-            <code className="bg-emerald-900/60 px-1.5 py-0.5 rounded text-emerald-300 font-mono text-[11px]">
-              /campaign-products
-            </code>{" "}
-            page with special offer for customers.
-          </p>
-        </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              if (onNavigateToView && activeProduct) {
-                onNavigateToView("landing", {
-                  productId: activeProduct.id,
-                  slug: activeProduct.slug,
-                  forceCampaign: isCampaignEnabled,
-                });
-              } else if (onNavigateToView) {
-                onNavigateToView("landing");
-              }
-            }}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg shadow-emerald-950/60 transition-all cursor-pointer"
-          >
-            <span>{isCampaignEnabled ? "Live Campaign Page" : "Live Product Page"}</span>
-            <ExternalLink className="w-3.5 h-3.5" />
-          </button>
-      </div>
-
       {saveSuccess && (
         <div className="p-4 rounded-2xl bg-emerald-950 border border-emerald-700/60 text-emerald-300 text-xs font-bold flex items-center gap-2.5 shadow-lg animate-in fade-in duration-200">
           <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
@@ -185,6 +146,24 @@ export const AdminCampaign = ({
             <span>{`Currently Active Campaign Products (${activeProductsList.length})`}</span>
           </h3>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (onNavigateToView && activeProduct) {
+                  onNavigateToView("landing", {
+                    productId: activeProduct.id,
+                    slug: activeProduct.slug,
+                    forceCampaign: isCampaignEnabled,
+                  });
+                } else if (onNavigateToView) {
+                  onNavigateToView("landing");
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white shadow-2xs transition-all cursor-pointer"
+            >
+              <span>{isCampaignEnabled ? "Live Campaign Page" : "Live Product Page"}</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
             <button
               type="button"
               onClick={handleToggleCampaignEnabled}
