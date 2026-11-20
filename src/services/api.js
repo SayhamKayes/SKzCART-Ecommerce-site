@@ -73,6 +73,41 @@ export const apiFetch = async (endpoint, options = {}) => {
 // Scoped fetch to route all internal API calls through apiFetch
 const fetch = apiFetch;
 
+export const getActiveMarketingTenantId = () => {
+  if (typeof window === 'undefined') return 'default';
+  try {
+    return (
+      sessionStorage.getItem('amardokan_active_tenant_id') ||
+      localStorage.getItem('amardokan_active_tenant_id') ||
+      'default'
+    );
+  } catch {
+    return 'default';
+  }
+};
+
+export const setActiveMarketingTenantId = (tenantId) => {
+  const clean = String(tenantId || 'default').trim() || 'default';
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.setItem('amardokan_active_tenant_id', clean);
+      localStorage.setItem('amardokan_active_tenant_id', clean);
+    } catch {}
+  }
+  return clean;
+};
+
+const metaTenantFetch = (url, options = {}) => {
+  const incoming = options.headers && typeof options.headers === 'object' && !(options.headers instanceof Headers)
+    ? options.headers
+    : {};
+  const headers = { ...incoming };
+  if (!headers['X-Tenant-Id']) {
+    headers['X-Tenant-Id'] = getActiveMarketingTenantId();
+  }
+  return apiFetch(url, { ...options, headers });
+};
+
 export const apiClient = {
   async getProducts(category, search) {
     try {
@@ -517,6 +552,18 @@ export const apiClient = {
     }
   },
 
+  async syncCourierStatus(orderId) {
+    try {
+      const res = await fetch(`/api/v1/couriers/sync/${encodeURIComponent(orderId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
   async getSteadfastBalance() {
     return this.getCourierBalance('steadfast');
   },
@@ -580,16 +627,6 @@ export const apiClient = {
     });
     const data = await res.json();
     return data.courier;
-  },
-
-  async getMarketingEvents() {
-    try {
-      const res = await fetch('/api/v1/marketing/events');
-      const data = await res.json();
-      return data.events || [];
-    } catch {
-      return [];
-    }
   },
 
   async getNotifications() {
@@ -745,9 +782,32 @@ export const apiClient = {
     }
   },
 
+  async getMarketingEventsBundle() {
+    try {
+      const res = await fetch('/api/v1/marketing/events');
+      const data = await res.json();
+      return {
+        events: Array.isArray(data.events) ? data.events : [],
+        productAnalytics: Array.isArray(data.productAnalytics) ? data.productAnalytics : [],
+        activePixelId: data.activePixelId || '',
+      };
+    } catch {
+      return { events: [], productAnalytics: [], activePixelId: '' };
+    }
+  },
+
+  async clearMarketingEvents() {
+    try {
+      const res = await fetch('/api/v1/marketing/events', { method: 'DELETE' });
+      return await res.json();
+    } catch {
+      return { success: false };
+    }
+  },
+
   async syncMetaAds(payload = {}) {
     try {
-      const res = await fetch('/api/v1/marketing/sync-meta-ads', {
+      const res = await metaTenantFetch('/api/v1/marketing/sync-meta-ads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -755,6 +815,214 @@ export const apiClient = {
       return await res.json();
     } catch (err) {
       console.warn('syncMetaAds error:', err);
+      return { success: false, message: err.message };
+    }
+  },
+
+  // ==========================================
+  // SAAS MULTI-TENANT META ADS & BOOST API
+  // ==========================================
+  async getMarketingTenants() {
+    try {
+      const res = await metaTenantFetch('/api/v1/marketing/tenants');
+      return await res.json();
+    } catch (err) {
+      return { success: false, tenants: [], message: err.message };
+    }
+  },
+
+  async createMarketingTenant(payload) {
+    try {
+      const res = await metaTenantFetch('/api/v1/marketing/tenants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async getMetaConnection() {
+    try {
+      const res = await metaTenantFetch('/api/v1/marketing/meta/connection');
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async disconnectMetaConnection() {
+    try {
+      const res = await metaTenantFetch('/api/v1/marketing/meta/connection', { method: 'DELETE' });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async getMetaOAuthUrl(params = {}) {
+    try {
+      const res = await metaTenantFetch('/api/v1/marketing/meta/oauth/url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async exchangeMetaOAuthCode(payload) {
+    try {
+      const res = await metaTenantFetch('/api/v1/marketing/meta/oauth/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async connectMetaToken(payload) {
+    try {
+      const res = await metaTenantFetch('/api/v1/marketing/meta/connect-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async selectMetaAssets(payload) {
+    try {
+      const res = await metaTenantFetch('/api/v1/marketing/meta/select-assets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async getMetaAccountHealth() {
+    try {
+      const res = await metaTenantFetch('/api/v1/marketing/meta/account-health');
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async getMetaPagePosts(limit = 15) {
+    try {
+      const res = await metaTenantFetch(`/api/v1/marketing/meta/page-posts?limit=${encodeURIComponent(limit)}`);
+      return await res.json();
+    } catch (err) {
+      return { success: false, posts: [], message: err.message };
+    }
+  },
+
+  async searchMetaTargeting(query, type = 'adinterest') {
+    try {
+      const q = new URLSearchParams({ q: query || '', type });
+      const res = await metaTenantFetch(`/api/v1/marketing/meta/targeting/search?${q.toString()}`);
+      return await res.json();
+    } catch (err) {
+      return { success: false, results: [], message: err.message };
+    }
+  },
+
+  async getMetaReachEstimate(targeting) {
+    try {
+      const res = await metaTenantFetch('/api/v1/marketing/meta/targeting/reach-estimate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targeting }),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async getMetaCampaigns() {
+    try {
+      const res = await metaTenantFetch('/api/v1/marketing/meta/campaigns');
+      return await res.json();
+    } catch (err) {
+      return { success: false, campaigns: [], message: err.message };
+    }
+  },
+
+  async launchMetaCampaign(payload) {
+    try {
+      const res = await metaTenantFetch('/api/v1/marketing/meta/campaigns/launch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async toggleMetaCampaignStatus(campaignId, nextStatus) {
+    try {
+      const res = await metaTenantFetch(`/api/v1/marketing/meta/campaigns/${encodeURIComponent(campaignId)}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async deleteMetaCampaign(campaignId) {
+    try {
+      const res = await metaTenantFetch(`/api/v1/marketing/meta/campaigns/${encodeURIComponent(campaignId)}`, {
+        method: 'DELETE',
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async updateMetaAdSet(adsetId, updates) {
+    try {
+      const res = await metaTenantFetch(`/api/v1/marketing/meta/adsets/${encodeURIComponent(adsetId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async syncMetaAdsTwoWay() {
+    try {
+      const res = await metaTenantFetch('/api/v1/marketing/meta/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      return await res.json();
+    } catch (err) {
       return { success: false, message: err.message };
     }
   },
