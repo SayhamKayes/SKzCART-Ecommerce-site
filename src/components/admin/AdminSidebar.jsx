@@ -25,25 +25,30 @@ import {
   ChevronDown,
   Megaphone,
   Briefcase,
-  ShieldCheck
+  ShieldCheck,
+  TrendingUp,
+  UserCheck
 } from "lucide-react";
 import { useThemeConfig } from "../frontPanel/FrontPanelContext";
 
 export const ROLE_PERMISSIONS = {
   ADMIN: [
     "overview",
+    "orders",
+    "analytics",
+    "leads",
     "shopDetails",
     "themesColors",
     "sliders",
     "media",
     "reviews",
-    "orders",
     "products",
     "campaignProducts",
     "productEditorial",
     "couriers",
     "payments",
     "marketing",
+    "adCampaigns",
     "notifications",
     "audit",
     "staff",
@@ -51,8 +56,10 @@ export const ROLE_PERMISSIONS = {
   ],
   MANAGER: [
     "overview",
-    "reviews",
     "orders",
+    "analytics",
+    "leads",
+    "reviews",
     "products",
     "campaignProducts",
     "couriers",
@@ -113,6 +120,12 @@ const AdminSidebar = ({
       icon: Package
     },
     {
+      type: "item",
+      id: "analytics",
+      label: "Analytics",
+      icon: TrendingUp
+    },
+    {
       type: "group",
       id: "appearances",
       label: "Appearances",
@@ -138,7 +151,9 @@ const AdminSidebar = ({
       icon: Megaphone,
       items: [
         { id: "campaignProducts", label: "Special Campaign Products", icon: Zap },
-        { id: "marketing", label: "Marketing & CAPI", icon: BarChart3 }
+        { id: "marketing", label: "Marketing & CAPI", icon: BarChart3 },
+        { id: "adCampaigns", label: "Ads Campaigns", icon: Megaphone },
+        { id: "leads", label: "Lead Generation", icon: UserCheck }
       ]
     },
     {
