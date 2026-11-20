@@ -135,9 +135,23 @@ const UserPortal = ({
     setSelectedTrackOrder(order);
     setActiveTab("tracking");
   };
-  const getStatusBadge = (status) => {
+  const getStatusBadge = (status, order = null) => {
+    const verStatus = order?.address?.verificationStatus;
+    const isVerified =
+      verStatus === "VERIFIED" ||
+      String(order?.paymentStatus || "").toUpperCase() === "PAID";
+    const isNotVerified =
+      verStatus === "NOT_VERIFIED" ||
+      String(order?.paymentStatus || "").toUpperCase() === "FAILED";
+
     switch (status) {
       case "PENDING":
+        if (isNotVerified) {
+          return <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800">{"Payment Not Verified"}</span>;
+        }
+        if (isVerified) {
+          return <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">{"Payment Verified"}</span>;
+        }
         return <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">{"Pending"}</span>;
       case "CONFIRMED":
         return <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">{"Confirmed"}</span>;
@@ -339,7 +353,7 @@ const UserPortal = ({
                 <span className="font-extrabold text-base text-neutral-900 tracking-tight">
                   #{order.id}
                 </span>
-                {getStatusBadge(order.status)}
+                {getStatusBadge(order.status, order)}
                 <span className="text-xs text-neutral-400 flex items-center gap-1">
                   <Clock className="w-3.5 h-3.5" />
                   <span>{formatBDTDateTime(order.createdAt, isEnglish)}</span>
