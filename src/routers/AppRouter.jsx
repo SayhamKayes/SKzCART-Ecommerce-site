@@ -34,6 +34,8 @@ const AdminCustomerReviews = lazy(() => import('../components/admin/AdminCustome
 const AdminStaffManagement = lazy(() => import('../components/admin/AdminStaffManagement').then(m => ({ default: m.AdminStaffManagement || m.default })));
 const AdminRecycleBin = lazy(() => import('../components/admin/AdminRecycleBin').then(m => ({ default: m.AdminRecycleBin || m.default })));
 const AdminProductEditorial = lazy(() => import('../components/admin/AdminProductEditorial').then(m => ({ default: m.AdminProductEditorial || m.default })));
+const AdminAnalytics = lazy(() => import('../components/admin/AdminAnalytics').then(m => ({ default: m.AdminAnalytics || m.default })));
+const AdminLeads = lazy(() => import('../components/admin/AdminLeads').then(m => ({ default: m.AdminLeads || m.default })));
 
 const RouteLoadingSpinner = () => (
   <div className="min-h-[60vh] flex flex-col items-center justify-center p-8 text-center">
@@ -41,6 +43,64 @@ const RouteLoadingSpinner = () => (
     <p className="text-xs font-semibold text-neutral-500 animate-pulse">Loading page...</p>
   </div>
 );
+
+class AdminTabErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, errorMessage: '' };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, errorMessage: error?.message || 'Unexpected rendering error' };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('Admin Tab Error:', error, info);
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.tabKey !== this.props.tabKey && this.state.hasError) {
+      this.setState({ hasError: false, errorMessage: '' });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="bg-white rounded-3xl p-8 border border-rose-200 shadow-xs text-center space-y-3 max-w-xl mx-auto my-8">
+          <h2 className="text-base font-black text-rose-800">Something went wrong loading this view</h2>
+          <p className="text-xs text-neutral-600 font-mono bg-rose-50 p-3 rounded-xl border border-rose-100 break-words">
+            {this.state.errorMessage}
+          </p>
+          <div className="flex items-center justify-center gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => this.setState({ hasError: false, errorMessage: '' })}
+              className="px-4 py-2 rounded-xl bg-emerald-700 text-white text-xs font-bold cursor-pointer"
+            >
+              Retry View
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  localStorage.removeItem('amardokan_custom_campaigns');
+                  localStorage.removeItem('amardokan_active_tenant_id');
+                  sessionStorage.removeItem('amardokan_active_tenant_id');
+                } catch {}
+                window.location.reload();
+              }}
+              className="px-4 py-2 rounded-xl bg-neutral-100 text-neutral-800 text-xs font-bold border border-neutral-200 cursor-pointer"
+            >
+              Reset Cache & Reload
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 
 export const AppRouter = ({
@@ -95,6 +155,7 @@ export const AppRouter = ({
   const { themeConfig, updateThemeConfig } = useThemeConfig();
   const { isEnglish } = useLanguage();
   const [orderStatusFilter, setOrderStatusFilter] = React.useState('ALL');
+  const [orderPaymentMethodFilter, setOrderPaymentMethodFilter] = React.useState('ALL');
 
   // Strict Tab Guard: Automatically redirects if the active tab is forbidden for the current role
   React.useEffect(() => {
@@ -351,14 +412,17 @@ export const AppRouter = ({
             <AdminOverview
               orders={orders}
               products={products}
-              onViewOrders={(status = 'ALL') => {
+              onViewOrders={(status = 'ALL', paymentMethod = 'ALL') => {
                 setOrderStatusFilter(status);
+                setOrderPaymentMethodFilter(paymentMethod);
                 setAdminTab('orders');
               }}
-              onSelectOrderStatusFilter={(status) => {
+              onSelectOrderStatusFilter={(status, paymentMethod = 'ALL') => {
                 setOrderStatusFilter(status);
+                setOrderPaymentMethodFilter(paymentMethod);
                 setAdminTab('orders');
               }}
+              onNavigateTab={(tab) => setAdminTab(tab)}
               onSelectOrder={(ord) => setAdminSelectedOrder(ord)}
             />
           )}
@@ -399,6 +463,7 @@ export const AppRouter = ({
               onOpenAssignCourier={(ord) => setCourierAssignOrder(ord)}
               currentRole={adminRole}
               initialStatusFilter={orderStatusFilter}
+              initialPaymentMethodFilter={orderPaymentMethodFilter}
             />
           )}
           {adminTab === 'products' && (
@@ -432,19 +497,41 @@ export const AppRouter = ({
           )}
           {adminTab === 'payments' && <AdminPayments orders={orders} onRefreshOrders={refreshData} />}
           {adminTab === 'marketing' && (
-            <AdminMarketing
-              products={products}
-              landingPages={landingPages}
-              orders={orders}
-              onNavigateTab={(tab) => setAdminTab(tab)}
-              onSelectCampaignProduct={(prodId) => {
-                if (typeof updateThemeConfig === 'function') {
-                  updateThemeConfig('campaign', { activeProductId: prodId });
-                }
-              }}
-              onNavigateToView={navigateToView}
-            />
+            <AdminTabErrorBoundary tabKey="marketing">
+              <AdminMarketing
+                products={products}
+                landingPages={landingPages}
+                orders={orders}
+                sectionMode="pixel"
+                onNavigateTab={(tab) => setAdminTab(tab)}
+                onSelectCampaignProduct={(prodId) => {
+                  if (typeof updateThemeConfig === 'function') {
+                    updateThemeConfig('campaign', { activeProductId: prodId });
+                  }
+                }}
+                onNavigateToView={navigateToView}
+              />
+            </AdminTabErrorBoundary>
           )}
+          {adminTab === 'adCampaigns' && (
+            <AdminTabErrorBoundary tabKey="adCampaigns">
+              <AdminMarketing
+                products={products}
+                landingPages={landingPages}
+                orders={orders}
+                sectionMode="campaigns"
+                onNavigateTab={(tab) => setAdminTab(tab)}
+                onSelectCampaignProduct={(prodId) => {
+                  if (typeof updateThemeConfig === 'function') {
+                    updateThemeConfig('campaign', { activeProductId: prodId });
+                  }
+                }}
+                onNavigateToView={navigateToView}
+              />
+            </AdminTabErrorBoundary>
+          )}
+          {adminTab === 'analytics' && <AdminAnalytics orders={orders} products={products} />}
+          {adminTab === 'leads' && <AdminLeads orders={orders} />}
           {adminTab === 'notifications' && <AdminNotifications orders={orders} />}
           {adminTab === 'blueprint' && <AdminBlueprint />}
           {adminTab === 'audit' && <AdminAuditLogs logs={auditLogs} onRefresh={refreshData} />}
