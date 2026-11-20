@@ -30,6 +30,7 @@ import { BANGLADESH_DISTRICTS, normalizeBangladeshPhone, getThanasForDistrict, f
 import { DEFAULT_PAYMENT_METHODS, formatAccountTypeLabel } from "../../utils/paymentConfig";
 import { DEFAULT_PRODUCT_PLACEHOLDER, handleProductImageError } from "../../utils/productImage";
 import { apiClient } from "../../services/api";
+import { marketingTracker } from "../../services/marketing";
 import { useThemeConfig } from "../frontPanel/FrontPanelContext";
 import { Campaign_Header, Product_Header } from "../Header";
 import { Footer } from "../Footer";
@@ -380,11 +381,26 @@ export function CampaignLandingPage({
     ].slice(0, 15));
   };
 
+  const lastTrackedCampaignViewRef = useRef(null);
+
   useEffect(() => {
-    if (product?.id) {
+    if (product?.id && lastTrackedCampaignViewRef.current !== product.id) {
+      lastTrackedCampaignViewRef.current = product.id;
       addEvent("ViewContent", `Viewing: ${displayName}`, `SKU: ${product.sku || product.id} | ৳${currentPrice}`);
+      marketingTracker.track(
+        "ViewContent",
+        {
+          productId: product.id,
+          name: displayName,
+          value: currentPrice,
+          currency: "BDT",
+          source: "campaign_landing",
+          campaign: product.slug || "",
+        },
+        { productId: product.id, campaign: product.slug || "" }
+      );
     }
-  }, [product?.id, displayName, currentPrice]);
+  }, [product?.id]);
 
   // Zoom state on desktop
   const [zoomStyle, setZoomStyle] = useState({
@@ -663,45 +679,55 @@ export function CampaignLandingPage({
     };
 
     try {
+      // For SSLCommerz: initiate gateway session FIRST without creating an Order until payment succeeds
+      if (selectedPayment === "sslcommerz") {
+        const payInit = await apiClient.initiatePayment({
+          ...orderPayload,
+          amount: total,
+          customerData: {
+            customerName: name,
+            phone: normalizedPhone,
+            email: resolvedEmail,
+            district: resolvedDistrict,
+            fullAddress: address,
+          }
+        });
+
+        if (payInit && payInit.success && payInit.gatewayUrl) {
+          window.location.href = payInit.gatewayUrl;
+          return;
+        }
+        setTrxError(
+          payInit?.message ||
+            "SSLCommerz gateway could not be initiated. Please check gateway configuration or choose another payment method."
+        );
+        return;
+      }
+
       const result = await apiClient.checkout(orderPayload);
-      const createdOrder = (result && result.order) ? result.order : {
-        ...orderPayload,
-        id: orderId,
-        createdAt: new Date().toISOString(),
-        paymentStatus: isManualMfs ? 'PAID' : (selectedPayment === 'sslcommerz' ? 'PENDING' : 'UNPAID'),
-        status: isManualMfs ? 'CONFIRMED' : 'PENDING',
-      };
+      if (!result || !result.success || !result.order) {
+        setTrxError(result?.message || "Failed to place order. Please try again.");
+        return;
+      }
+      const createdOrder = result.order;
 
       addEvent("Purchase", `Order confirmed ${createdOrder.id}`, `${displayName} × ${qty} | ৳${total} (${effectiveMethod})`);
+      marketingTracker.track("Purchase", {
+        orderId: createdOrder.id,
+        value: total,
+        productId: product?.id || "",
+        productName: displayName,
+        name: displayName,
+        source: "campaign_landing",
+        campaign: product?.slug || "",
+        items: [{ id: product?.id, name: displayName, quantity: qty, price: currentPrice }],
+      });
 
       // Clear cart from local storage immediately as order is placed
       try {
         localStorage.removeItem("amardokan_cart");
         localStorage.setItem("amardokan_cart", "[]");
       } catch { }
-
-      // If SSLCommerz, initiate payment session and redirect to gateway page
-      if (selectedPayment === "sslcommerz") {
-        try {
-          const payInit = await apiClient.initiatePayment({
-            orderId: createdOrder.id,
-            amount: createdOrder.total || total,
-            customerData: {
-              customerName: name,
-              phone: normalizedPhone,
-              district,
-              fullAddress: address,
-            }
-          });
-
-          if (payInit && payInit.success && payInit.gatewayUrl) {
-            window.location.href = payInit.gatewayUrl;
-            return;
-          }
-        } catch (initErr) {
-          console.error("SSLCommerz checkout initiation failed:", initErr);
-        }
-      }
 
       if (onOrderSuccess) {
         onOrderSuccess(createdOrder);
@@ -712,18 +738,7 @@ export function CampaignLandingPage({
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       console.error("Order submission error:", err);
-      const fallbackOrder = {
-        ...orderPayload,
-        id: orderId,
-        createdAt: new Date().toISOString(),
-        customerName: name,
-        paymentStatus: isManualMfs ? 'PAID' : 'PENDING',
-        status: 'PENDING',
-      };
-      if (onOrderSuccess) onOrderSuccess(fallbackOrder);
-      setConfirmedOrder(fallbackOrder);
-      setView("confirmation");
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      setTrxError(err?.message || "Server connection error while placing order. Please try again.");
     } finally {
       setIsSubmittingOrder(false);
     }
@@ -2521,6 +2536,12 @@ export function CampaignLandingPage({
                     <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold flex items-center gap-2">
                       <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
                       <span>{"Sorry, this product is currently Out of Stock. Orders are temporarily closed."}</span>
+                    </div>
+                  )}
+                  {trxError && (
+                    <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>{trxError}</span>
                     </div>
                   )}
                   <button
