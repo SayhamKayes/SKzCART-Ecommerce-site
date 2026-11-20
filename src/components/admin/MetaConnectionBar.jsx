@@ -12,6 +12,7 @@ import {
   Lock,
   Sparkles,
   ExternalLink,
+  BookOpen,
 } from "lucide-react";
 import { apiClient } from "../../services/api";
 
@@ -28,6 +29,8 @@ const MetaConnectionBar = ({
   connection,
   shopName = "Store",
   hasServerOAuthApp = false,
+  showSetupGuide = false,
+  onToggleSetupGuide,
   onConnectionUpdated,
 }) => {
   // Connect Modal (OAuth App Config OR Direct System User Token)
@@ -246,6 +249,21 @@ const MetaConnectionBar = ({
 
         {/* Connect Actions */}
         <div className="flex flex-wrap items-center gap-2">
+          {typeof onToggleSetupGuide === "function" && (
+            <button
+              type="button"
+              onClick={onToggleSetupGuide}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs border transition-all cursor-pointer ${
+                showSetupGuide
+                  ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-xs"
+                  : "bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300"
+              }`}
+              title={showSetupGuide ? "Hide Setup Guide" : "Open Meta Ads & Commerce Setup Guide"}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>{showSetupGuide ? "Hide Guide" : "Setup Guide"}</span>
+            </button>
+          )}
           {!isConnected ? (
             <button
               type="button"
