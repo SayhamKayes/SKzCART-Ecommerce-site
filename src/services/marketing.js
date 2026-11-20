@@ -4,6 +4,13 @@ import { realtimeService } from './realtime';
 export class MarketingTracker {
   constructor(initialEvents = []) {
     this.events = [...initialEvents];
+    let cachedIsActive = true;
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('amardokan_marketing_is_active');
+        if (stored !== null) cachedIsActive = JSON.parse(stored) !== false;
+      } catch {}
+    }
     this.config = {
       pixelId: '',
       capiToken: '',
@@ -12,11 +19,13 @@ export class MarketingTracker {
       targetScope: 'GLOBAL',
       targetProductId: '',
       targetLandingSlug: '',
-      isActive: true,
+      isActive: cachedIsActive,
     };
     this.pixelInitialized = false;
     this.ga4Initialized = false;
     this.initialized = false;
+    this._recentTrackTimestamps = new Map();
+    this._trackedOrderPurchases = new Set();
 
     if (typeof window !== 'undefined') {
       this.init();
@@ -49,6 +58,11 @@ export class MarketingTracker {
 
   applyConfig(config) {
     this.config = { ...this.config, ...config };
+    if (typeof window !== 'undefined' && config && 'isActive' in config) {
+      try {
+        localStorage.setItem('amardokan_marketing_is_active', JSON.stringify(Boolean(this.config.isActive)));
+      } catch {}
+    }
 
     if (!this.config.isActive) {
       return;
@@ -126,29 +140,10 @@ export class MarketingTracker {
 
   isScopeActive(context = {}) {
     if (!this.config.isActive) return false;
-    if (this.config.targetScope === 'GLOBAL') return true;
-
-    // Check Specific Product scope
     if (this.config.targetScope === 'PRODUCT') {
       const currentProdId = context.productId || context.targetId;
-      if (currentProdId && currentProdId === this.config.targetProductId) {
+      if (currentProdId && String(currentProdId) === String(this.config.targetProductId)) {
         return true;
-      }
-      // If event is an admin test event, allow execution
-      if (context.source === 'admin_test_console') return true;
-      return false;
-    }
-
-    // Check Specific Landing Page scope
-    if (this.config.targetScope === 'LANDING') {
-      const currentLanding = context.campaign || context.landingSlug;
-      if (currentLanding && currentLanding === this.config.targetLandingSlug) {
-        return true;
-      }
-      if (typeof window !== 'undefined' && this.config.targetLandingSlug) {
-        if (window.location.pathname.includes(this.config.targetLandingSlug)) {
-          return true;
-        }
       }
       if (context.source === 'admin_test_console') return true;
       return false;
@@ -163,9 +158,30 @@ export class MarketingTracker {
     const timestamp = new Date().toISOString();
 
     const isEligible = this.isScopeActive(combinedContext);
+    if (!isEligible) {
+      return null;
+    }
 
     const productName = data.productName || data.name || data.content_name || (data.items && data.items.map(i => i.name).filter(Boolean).join(', ')) || '';
     const productId = data.productId || (data.items && (data.items[0]?.productId || data.items[0]?.id)) || '';
+
+    // Prevent duplicate firing (e.g. StrictMode double-mount, Modal -> Show More Details transition, or repeated Purchase submit)
+    if (eventName === 'Purchase' && data.orderId) {
+      const orderKey = String(data.orderId).trim();
+      if (this._trackedOrderPurchases.has(orderKey)) {
+        return null;
+      }
+      this._trackedOrderPurchases.add(orderKey);
+    } else if (context.source !== 'admin_test_console') {
+      const dedupKey = `${eventName}:${String(productId || productName || 'global')}`;
+      const nowMs = Date.now();
+      const cooldownMs = eventName === 'ViewContent' ? 30000 : 2000;
+      const lastTs = this._recentTrackTimestamps.get(dedupKey) || 0;
+      if (nowMs - lastTs < cooldownMs) {
+        return null;
+      }
+      this._recentTrackTimestamps.set(dedupKey, nowMs);
+    }
 
     const eventRecord = {
       id: 'mkt-' + Math.random().toString(36).substring(2, 9),
@@ -174,14 +190,16 @@ export class MarketingTracker {
       timestamp,
       productName,
       productId,
-      browserReported: isEligible && !!this.config.pixelId,
-      serverCapiReported: isEligible && !!this.config.capiToken,
+      browserReported: !!this.config.pixelId,
+      serverCapiReported: !!this.config.capiToken,
       source: data.source || 'direct',
       campaign: data.campaign,
       value: data.value,
       orderId: data.orderId,
       dedupMatched: true,
-      eligible: isEligible,
+      eligible: true,
+      _isClientPending: true,
+      serverSynced: false,
     };
 
     this.events.unshift(eventRecord);
@@ -191,9 +209,11 @@ export class MarketingTracker {
       realtimeService.broadcast('MARKETING_EVENT_FIRED', eventRecord);
     } catch {}
 
-    if (!isEligible) {
-      return eventId;
-    }
+    const getCookieVal = (name) => {
+      if (typeof document === 'undefined' || !document.cookie) return '';
+      const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+      return match ? decodeURIComponent(match[1]) : '';
+    };
 
     // 1. Browser Meta Pixel Execution
     if (typeof window !== 'undefined' && window.fbq) {
@@ -205,7 +225,17 @@ export class MarketingTracker {
           content_ids: productId ? [productId] : data.content_ids || undefined,
           content_type: 'product',
         };
-        window.fbq('track', eventName, pixelData, { eventID: eventId });
+        const standardEvents = new Set([
+          'PageView',
+          'ViewContent',
+          'AddToCart',
+          'InitiateCheckout',
+          'Purchase',
+          'Lead',
+          'Search',
+        ]);
+        const fbqMethod = standardEvents.has(eventName) ? 'track' : 'trackCustom';
+        window.fbq(fbqMethod, eventName, pixelData, { eventID: eventId });
       } catch (err) {
         console.warn('[Browser Pixel track error]:', err);
       }
@@ -236,17 +266,24 @@ export class MarketingTracker {
         testEventCode: this.config.testEventCode || undefined,
         productName,
         productId,
+        userData: {
+          fbp: getCookieVal('_fbp'),
+          fbc: getCookieVal('_fbc'),
+        },
         customData: {
           value: data.value,
           currency: data.currency || 'BDT',
           orderId: data.orderId,
           content_name: productName,
           content_ids: productId ? [productId] : data.content_ids,
+          items: Array.isArray(data.items) ? data.items : undefined,
         },
       })
       .then((res) => {
         if (res && res.success) {
           eventRecord.serverCapiReported = true;
+          eventRecord.serverSynced = true;
+          eventRecord._isClientPending = false;
           eventRecord.capiResult = res.capi_result;
         }
       })
