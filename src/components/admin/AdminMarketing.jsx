@@ -133,9 +133,10 @@ const AdminMarketing = ({
   const [metaSyncMsg, setMetaSyncMsg] = useState("");
   const [copiedCatalogXml, setCopiedCatalogXml] = useState(false);
 
-  // Meta Setup Guidance & Bangla Instructions States
-  const [showBanglaGuide, setShowBanglaGuide] = useState(true);
-  const [guideTab, setGuideTab] = useState("events"); // 'events' | 'commerce' | 'tips'
+  // Meta Setup Guidance States (both hidden by default; toggled on click)
+  const [showPixelGuide, setShowPixelGuide] = useState(false);
+  const [showAdsGuide, setShowAdsGuide] = useState(false);
+  const [adsGuideTab, setAdsGuideTab] = useState("commerce"); // 'commerce' | 'tips'
 
   // Test Event Dispatcher States
   const [testEventName, setTestEventName] = useState("Purchase");
@@ -1099,16 +1100,16 @@ const AdminMarketing = ({
         <div className="flex items-center gap-2.5 flex-wrap">
           <button
             type="button"
-            onClick={() => setShowBanglaGuide((prev) => !prev)}
+            onClick={() => setShowPixelGuide((prev) => !prev)}
             className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs border transition-all cursor-pointer ${
-              showBanglaGuide
+              showPixelGuide
                 ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-xs"
                 : "bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300"
             }`}
-            title={showBanglaGuide ? "Hide Setup Guide" : "Open Meta Pixel Setup Guide"}
+            title={showPixelGuide ? "Hide Setup Guide" : "Open Meta Pixel Setup Guide"}
           >
             <BookOpen className="w-3.5 h-3.5" />
-            <span>{showBanglaGuide ? "Hide Guide" : "Setup Guide"}</span>
+            <span>{showPixelGuide ? "Hide Guide" : "Setup Guide"}</span>
           </button>
 
           <div className="flex items-center gap-2 bg-neutral-50 p-2.5 rounded-2xl border border-neutral-200 text-xs">
@@ -1133,11 +1134,155 @@ const AdminMarketing = ({
         connection={metaConnection}
         shopName={themeConfig?.shop?.shopName || themeConfig?.shop?.name || "AmarDokan"}
         hasServerOAuthApp={hasServerOAuthApp}
+        showSetupGuide={showAdsGuide}
+        onToggleSetupGuide={() => setShowAdsGuide((prev) => !prev)}
         onConnectionUpdated={(nextConn) => {
           setMetaConnection(nextConn);
           loadSaasAdsWorkspace();
         }}
       />
+
+      {/* Standalone Setup Guide Section for Ads Campaigns (Hidden by default; toggles from Setup Guide button) */}
+      {showAdsGuide && (
+        <div className="bg-gradient-to-br from-amber-50/70 via-white to-purple-50/40 rounded-3xl p-6 border border-amber-200/90 shadow-xs space-y-4 animate-in fade-in duration-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-200/60 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-xs shrink-0">
+                <BookOpen className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-neutral-900">
+                  {"Commerce Manager, Catalog XML & ROAS Tips"}
+                </h3>
+                <p className="text-xs text-neutral-600 mt-0.5">
+                  {"Connect your product feed for Advantage+ Catalog Ads and optimize campaign ROAS."}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <a
+                href="https://business.facebook.com/commerce"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+              >
+                <span>Commerce Manager</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+              <button
+                type="button"
+                onClick={() => setShowAdsGuide(false)}
+                className="p-1.5 rounded-xl text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors cursor-pointer"
+                title="Hide guide"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 border-b border-amber-100/80 pb-2 overflow-x-auto scrollbar-none">
+            <button
+              type="button"
+              onClick={() => setAdsGuideTab("commerce")}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                adsGuideTab === "commerce"
+                  ? "bg-purple-600 text-white shadow-xs"
+                  : "bg-white text-neutral-600 hover:bg-neutral-100 border border-neutral-200"
+              }`}
+            >
+              1. Commerce Manager & Catalog XML
+            </button>
+            <button
+              type="button"
+              onClick={() => setAdsGuideTab("tips")}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                adsGuideTab === "tips"
+                  ? "bg-amber-600 text-white shadow-xs"
+                  : "bg-white text-neutral-600 hover:bg-neutral-100 border border-neutral-200"
+              }`}
+            >
+              2. Store Pro-Tips & ROAS
+            </button>
+          </div>
+
+          {adsGuideTab === "commerce" && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1 text-xs animate-in fade-in">
+              <div className="bg-white p-4 rounded-2xl border border-neutral-200/90 shadow-2xs space-y-2">
+                <div className="flex items-center gap-2 text-purple-700 font-bold">
+                  <span className="w-5 h-5 rounded-full bg-purple-100 flex items-center justify-center text-[11px]">1</span>
+                  <span>Open Commerce Manager Catalog</span>
+                </div>
+                <p className="text-neutral-600 leading-relaxed">
+                  Go to{" "}
+                  <a
+                    href="https://business.facebook.com/commerce"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-purple-600 font-bold underline inline-flex items-center gap-0.5"
+                  >
+                    Meta Commerce Manager <ExternalLink className="w-2.5 h-2.5" />
+                  </a>{" "}
+                  and select your shop or catalog (or create a new catalog).
+                </p>
+              </div>
+
+              <div className="bg-white p-4 rounded-2xl border border-neutral-200/90 shadow-2xs space-y-2">
+                <div className="flex items-center gap-2 text-purple-700 font-bold">
+                  <span className="w-5 h-5 rounded-full bg-purple-100 flex items-center justify-center text-[11px]">2</span>
+                  <span>Paste XML Link in Data Feed</span>
+                </div>
+                <p className="text-neutral-600 leading-relaxed">
+                  Go to <strong>Catalog -&gt; Data Sources -&gt; Data Feeds -&gt; Add Items</strong>. Select <strong>"Scheduled Feed"</strong> and paste the link copied from the <strong>"Catalog XML"</strong> button.
+                </p>
+              </div>
+
+              <div className="bg-white p-4 rounded-2xl border border-neutral-200/90 shadow-2xs space-y-2">
+                <div className="flex items-center gap-2 text-purple-700 font-bold">
+                  <span className="w-5 h-5 rounded-full bg-purple-100 flex items-center justify-center text-[11px]">3</span>
+                  <span>Enable BDT & Auto-Sync</span>
+                </div>
+                <p className="text-neutral-600 leading-relaxed">
+                  Set update frequency to <strong>Hourly</strong> or <strong>Daily</strong> and currency to <strong>BDT</strong>. Meta will automatically sync all titles, prices, images, and stock for Advantage+ and retargeting ads.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {adsGuideTab === "tips" && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1 text-xs animate-in fade-in">
+              <div className="bg-white p-4 rounded-2xl border border-amber-200/80 shadow-2xs space-y-2">
+                <div className="flex items-center gap-2 text-amber-800 font-bold">
+                  <Lightbulb className="w-4 h-4 text-amber-600" />
+                  <span>Why Server CAPI Boosts ROAS</span>
+                </div>
+                <p className="text-neutral-600 leading-relaxed">
+                  Approximately 30-40% of mobile visitors use browser ad-blockers or iOS privacy protections. Pairing CAPI with your Pixel ensures Meta optimizes Ad delivery for real conversions.
+                </p>
+              </div>
+
+              <div className="bg-white p-4 rounded-2xl border border-amber-200/80 shadow-2xs space-y-2">
+                <div className="flex items-center gap-2 text-emerald-800 font-bold">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span>Event Deduplication</span>
+                </div>
+                <p className="text-neutral-600 leading-relaxed">
+                  Shared unique <code className="bg-neutral-100 px-1 rounded text-[11px]">eventId</code> values match browser & server purchases so Meta reports accurate CPA and ROAS without double counting.
+                </p>
+              </div>
+
+              <div className="bg-white p-4 rounded-2xl border border-amber-200/80 shadow-2xs space-y-2">
+                <div className="flex items-center gap-2 text-indigo-800 font-bold">
+                  <TrendingUp className="w-4 h-4 text-indigo-600" />
+                  <span>Single-Product Funnel Links</span>
+                </div>
+                <p className="text-neutral-600 leading-relaxed">
+                  Send paid ad traffic to generated <code className="bg-neutral-100 px-1 rounded text-[10px]">/campaign-products?product=ID</code> funnel links so buyers land directly on high-converting checkout pages.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="bg-white rounded-3xl p-6 border border-neutral-200 shadow-xs space-y-5">
         {/* Top Header & Single-Line Action Toolbar */}
@@ -1943,7 +2088,7 @@ const AdminMarketing = ({
       </>
       )}
 
-      {!isCampaignsView && showBanglaGuide && (
+      {!isCampaignsView && showPixelGuide && (
         <div className="bg-gradient-to-br from-amber-50/70 via-white to-orange-50/40 rounded-3xl p-6 border border-amber-200/90 shadow-xs space-y-4 animate-in fade-in duration-200">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-200/60 pb-4">
             <div className="flex items-center gap-3">
@@ -1951,19 +2096,16 @@ const AdminMarketing = ({
                 <BookOpen className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-base font-black text-neutral-900 flex items-center gap-2">
-                  <span>{"Meta Setup Instructions & Growth Tips"}</span>
-                  <span className="text-[10px] font-bold uppercase bg-amber-100 text-amber-900 px-2.5 py-0.5 rounded-full border border-amber-300">
-                    {"Bangla Guide"}
-                  </span>
+                <h3 className="text-base font-black text-neutral-900">
+                  {"Meta Pixel & CAPI Setup Instructions"}
                 </h3>
                 <p className="text-xs text-neutral-600 mt-0.5">
-                  {"Complete step-by-step guideline and recommendations for Meta Events Manager, CAPI, and Product Catalog."}
+                  {"Step-by-step instructions to connect your Meta Pixel ID and Conversions API (CAPI) Token via Events Manager."}
                 </p>
               </div>
             </div>
 
-            {/* Quick External Meta Links */}
+            {/* Quick External Events Manager Link */}
             <div className="flex items-center gap-2 flex-wrap">
               <a
                 href={pixelId ? `https://business.facebook.com/events_manager2/list/dataset/${pixelId}` : "https://business.facebook.com/events_manager2"}
@@ -1975,18 +2117,8 @@ const AdminMarketing = ({
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
 
-              <a
-                href="https://business.facebook.com/commerce"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
-              >
-                <span>Commerce Manager</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-
               <button
-                onClick={() => setShowBanglaGuide(false)}
+                onClick={() => setShowPixelGuide(false)}
                 className="p-1.5 rounded-xl text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors cursor-pointer"
                 title={"Hide guide"}
               >
@@ -1995,162 +2127,47 @@ const AdminMarketing = ({
             </div>
           </div>
 
-          {/* Guide Tabs */}
-          <div className="flex items-center gap-2 border-b border-amber-100/80 pb-2 overflow-x-auto scrollbar-none">
-            <button
-              onClick={() => setGuideTab("events")}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                guideTab === "events"
-                  ? "bg-blue-600 text-white shadow-xs"
-                  : "bg-white text-neutral-600 hover:bg-neutral-100 border border-neutral-200"
-              }`}
-            >
-              1. Events Manager & CAPI Setup
-            </button>
-            <button
-              onClick={() => setGuideTab("commerce")}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                guideTab === "commerce"
-                  ? "bg-purple-600 text-white shadow-xs"
-                  : "bg-white text-neutral-600 hover:bg-neutral-100 border border-neutral-200"
-              }`}
-            >
-              2. Commerce Manager & Catalog XML
-            </button>
-            <button
-              onClick={() => setGuideTab("tips")}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                guideTab === "tips"
-                  ? "bg-amber-600 text-white shadow-xs"
-                  : "bg-white text-neutral-600 hover:bg-neutral-100 border border-neutral-200"
-              }`}
-            >
-              3. Store Pro-Tips & ROAS
-            </button>
+          {/* Events Manager & CAPI Setup Steps */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1 text-xs animate-in fade-in">
+            <div className="bg-white p-4 rounded-2xl border border-neutral-200/90 shadow-2xs space-y-2">
+              <div className="flex items-center gap-2 text-blue-700 font-bold">
+                <span className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center text-[11px]">1</span>
+                <span>Collect Pixel / Dataset ID</span>
+              </div>
+              <p className="text-neutral-600 leading-relaxed">
+                Go to{" "}
+                <a
+                  href="https://business.facebook.com/events_manager2"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 font-bold underline inline-flex items-center gap-0.5"
+                >
+                  Meta Events Manager <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+                . Select your Pixel or Dataset from the left menu. In the <strong>Settings</strong> tab, copy the <strong>Dataset ID / Pixel ID</strong> and paste it into the <strong>Meta Pixel ID</strong> field below.
+              </p>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-neutral-200/90 shadow-2xs space-y-2">
+              <div className="flex items-center gap-2 text-blue-700 font-bold">
+                <span className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center text-[11px]">2</span>
+                <span>Generate CAPI Access Token</span>
+              </div>
+              <p className="text-neutral-600 leading-relaxed">
+                In Events Manager Settings, scroll down to <strong>Conversions API</strong>. Click the <strong>"Generate access token"</strong> link to receive a long access token (<code className="bg-neutral-100 px-1 rounded text-[11px]">EAAG...</code>). Copy the full token and paste it into <strong>CAPI Server Token</strong> below.
+              </p>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-neutral-200/90 shadow-2xs space-y-2">
+              <div className="flex items-center gap-2 text-blue-700 font-bold">
+                <span className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center text-[11px]">3</span>
+                <span>Test & Verify Deduplication</span>
+              </div>
+              <p className="text-neutral-600 leading-relaxed">
+                In Events Manager under the <strong>Test events</strong> tab, copy your test code (<code className="bg-neutral-100 px-1 rounded text-[11px]">TEST84920</code>) into <strong>Test Event Code</strong> below. Then click <strong>"Save & Connect Pixel"</strong> and <strong>"Fire Test Event"</strong>. You will immediately verify green <strong>"Deduplicated"</strong> status.
+              </p>
+            </div>
           </div>
-
-          {/* Tab 1: Events Manager & CAPI */}
-          {guideTab === "events" && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1 text-xs animate-in fade-in">
-              <div className="bg-white p-4 rounded-2xl border border-neutral-200/90 shadow-2xs space-y-2">
-                <div className="flex items-center gap-2 text-blue-700 font-bold">
-                  <span className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center text-[11px]">1</span>
-                  <span>Collect Pixel / Dataset ID</span>
-                </div>
-                <p className="text-neutral-600 leading-relaxed">
-                  Go to{" "}
-                  <a
-                    href="https://business.facebook.com/events_manager2"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 font-bold underline inline-flex items-center gap-0.5"
-                  >
-                    Meta Events Manager <ExternalLink className="w-2.5 h-2.5" />
-                  </a>
-                  . Select your Pixel or Dataset from the left menu. In the <strong>Settings</strong> tab, copy the <strong>Dataset ID / Pixel ID</strong> and paste it into the <strong>Meta Pixel ID</strong> field below.
-                </p>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-neutral-200/90 shadow-2xs space-y-2">
-                <div className="flex items-center gap-2 text-blue-700 font-bold">
-                  <span className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center text-[11px]">2</span>
-                  <span>Generate CAPI Access Token</span>
-                </div>
-                <p className="text-neutral-600 leading-relaxed">
-                  In Events Manager Settings, scroll down to <strong>Conversions API</strong>. Click the <strong>"Generate access token"</strong> link to receive a long access token (<code className="bg-neutral-100 px-1 rounded text-[11px]">EAAG...</code>). Copy the full token and paste it into <strong>CAPI Server Token</strong> below.
-                </p>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-neutral-200/90 shadow-2xs space-y-2">
-                <div className="flex items-center gap-2 text-blue-700 font-bold">
-                  <span className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center text-[11px]">3</span>
-                  <span>Test & Verify Deduplication</span>
-                </div>
-                <p className="text-neutral-600 leading-relaxed">
-                  In Events Manager under the <strong>Test events</strong> tab, copy your test code (<code className="bg-neutral-100 px-1 rounded text-[11px]">TEST84920</code>) into <strong>Test Event Code</strong> below. Then click <strong>"Save & Connect Pixel"</strong> and <strong>"Fire Test Event"</strong>. You will immediately verify green <strong>"Deduplicated"</strong> status.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Tab 2: Commerce Manager & Catalog XML */}
-          {guideTab === "commerce" && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1 text-xs animate-in fade-in">
-              <div className="bg-white p-4 rounded-2xl border border-neutral-200/90 shadow-2xs space-y-2">
-                <div className="flex items-center gap-2 text-purple-700 font-bold">
-                  <span className="w-5 h-5 rounded-full bg-purple-100 flex items-center justify-center text-[11px]">1</span>
-                  <span>Open Commerce Manager Catalog</span>
-                </div>
-                <p className="text-neutral-600 leading-relaxed">
-                  Go to{" "}
-                  <a
-                    href="https://business.facebook.com/commerce"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-purple-600 font-bold underline inline-flex items-center gap-0.5"
-                  >
-                    Meta Commerce Manager <ExternalLink className="w-2.5 h-2.5" />
-                  </a>{" "}
-                  and select your shop or catalog (or create a new catalog).
-                </p>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-neutral-200/90 shadow-2xs space-y-2">
-                <div className="flex items-center gap-2 text-purple-700 font-bold">
-                  <span className="w-5 h-5 rounded-full bg-purple-100 flex items-center justify-center text-[11px]">2</span>
-                  <span>Paste XML Link in Data Feed</span>
-                </div>
-                <p className="text-neutral-600 leading-relaxed">
-                  Go to <strong>Catalog -&gt; Data Sources -&gt; Data Feeds -&gt; Add Items</strong>. Select <strong>"Scheduled Feed"</strong> and paste the link copied from the <strong>"Catalog XML"</strong> button.
-                </p>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-neutral-200/90 shadow-2xs space-y-2">
-                <div className="flex items-center gap-2 text-purple-700 font-bold">
-                  <span className="w-5 h-5 rounded-full bg-purple-100 flex items-center justify-center text-[11px]">3</span>
-                  <span>Enable BDT & Auto-Sync</span>
-                </div>
-                <p className="text-neutral-600 leading-relaxed">
-                  Set update frequency to <strong>Hourly</strong> or <strong>Daily</strong> and currency to <strong>BDT</strong>. Meta will automatically sync all titles, prices, images, and stock for Advantage+ and retargeting ads.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Tab 3: Pro Tips & Growth Strategy */}
-          {guideTab === "tips" && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1 text-xs animate-in fade-in">
-              <div className="bg-white p-4 rounded-2xl border border-amber-200/80 shadow-2xs space-y-2">
-                <div className="flex items-center gap-2 text-amber-800 font-bold">
-                  <Lightbulb className="w-4 h-4 text-amber-600" />
-                  <span>Why Server CAPI is Essential</span>
-                </div>
-                <p className="text-neutral-600 leading-relaxed">
-                  Approximately 30-40% of mobile visitors use browser ad-blockers or iOS privacy protections. Standard browser pixel tracking drops these sales. CAPI sends 100% accurate conversion data directly from the server to Meta.
-                </p>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-amber-200/80 shadow-2xs space-y-2">
-                <div className="flex items-center gap-2 text-emerald-800 font-bold">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  <span>Event Deduplication</span>
-                </div>
-                <p className="text-neutral-600 leading-relaxed">
-                  Our system transmits the exact same unique <code className="bg-neutral-100 px-1 rounded text-[11px]">eventId</code> on both client and server events. Meta accurately identifies single purchase events and eliminates double-reporting.
-                </p>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-amber-200/80 shadow-2xs space-y-2">
-                <div className="flex items-center gap-2 text-indigo-800 font-bold">
-                  <TrendingUp className="w-4 h-4 text-indigo-600" />
-                  <span>Single-Product Funnel Links</span>
-                </div>
-                <p className="text-neutral-600 leading-relaxed">
-                  Instead of sending traffic to a general homepage, direct ads to generated <code className="bg-neutral-100 px-1 rounded text-[10px]">/campaign-products?product=ID</code> funnel links. Visitors land directly on high-converting order checkout forms.
-                </p>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -2346,43 +2363,6 @@ const AdminMarketing = ({
                 : "Save & Connect Pixel"}
             </span>
           </button>
-
-          {/* Quick Meta Commerce Manager Shortcut Box */}
-          <div className="p-3 bg-purple-50/80 border border-purple-200/90 rounded-2xl flex items-center justify-between text-xs gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-purple-100 flex items-center justify-center text-purple-700 shrink-0">
-                <Share2 className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <span className="font-bold text-purple-950 block truncate">
-                  {"Meta Commerce Manager & Catalog"}
-                </span>
-                <span className="text-[11px] text-purple-800 block leading-tight">
-                  {"Upload your Catalog XML feed to Meta Commerce Manager for Advantage+ catalog ads."}
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <button
-                type="button"
-                onClick={handleCopyCatalogXml}
-                className="px-2.5 py-1.5 bg-white hover:bg-neutral-50 text-neutral-700 rounded-xl font-bold text-[11px] border border-purple-200 transition-colors cursor-pointer"
-                title={"Copy catalog XML feed URL"}
-              >
-                {copiedCatalogXml ? ("Copied!") : ("Copy Feed")}
-              </button>
-              <a
-                href="https://business.facebook.com/commerce"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-2.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white rounded-xl font-bold text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
-                title={"Open Meta Commerce Manager in new tab"}
-              >
-                <span>{"Open"}</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
-          </div>
 
           {/* BUTTON 2: DEDICATED FIRE TEST EVENT TOOL */}
           <div className="p-3.5 bg-neutral-50 rounded-2xl border border-neutral-200 space-y-2 mt-4">
