@@ -1,37 +1,43 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Online Store</title>
-    <script>
-      (function() {
-        try {
-          localStorage.removeItem("amardokan_theme_config");
-          var raw = localStorage.getItem("amardokan_db_theme_cache");
-          if (raw) {
-            var parsed = JSON.parse(raw);
-            if (parsed && parsed.shop && parsed.shop.name) {
-              document.title = parsed.shop.tagline
-                ? parsed.shop.name + " • " + parsed.shop.tagline
-                : parsed.shop.name;
-            }
-          }
-        } catch (e) {}
-      })();
-    </script>
-    <meta name="description" content="Full-stack enterprise e-commerce platform for Bangladesh with guest checkout, bKash/Nagad/SSLCOMMERZ, Pathao/Steadfast courier adapters, order lifecycle, tracking, and operations dashboard." />
-    <meta property="og:title" content="AmarDokan - Bangladesh Native E-Commerce Platform" />
-    <meta property="og:description" content="Full-stack enterprise e-commerce platform for Bangladesh with guest checkout, bKash/Nagad/SSLCOMMERZ, Pathao/Steadfast courier adapters, order lifecycle, tracking, and operations dashboard." />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
-  </head>
-  <body class="bg-neutral-50 text-neutral-900 antialiased font-sans selection:bg-emerald-500 selection:text-white">
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
-</html>
 
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Online Store</title>
+  <script>
+    (function () {
+      try {
+        localStorage.removeItem("amardokan_theme_config");
+        var raw = localStorage.getItem("amardokan_db_theme_cache");
+        if (raw) {
+          var parsed = JSON.parse(raw);
+          if (parsed && parsed.shop && parsed.shop.name) {
+            document.title = parsed.shop.tagline
+              ? parsed.shop.name + " | " + parsed.shop.tagline
+              : parsed.shop.name;
+          }
+        }
+      } catch (e) { }
+    })();
+  </script>
+  <meta name="description"
+    content="Full-stack enterprise e-commerce platform for Bangladesh with guest checkout, bKash/Nagad/SSLCOMMERZ, Pathao/Steadfast courier adapters, order lifecycle, tracking, and operations dashboard." />
+  <meta property="og:title" content="AmarDokan - Bangladesh Native E-Commerce Platform" />
+  <meta property="og:description"
+    content="Full-stack enterprise e-commerce platform for Bangladesh with guest checkout, bKash/Nagad/SSLCOMMERZ, Pathao/Steadfast courier adapters, order lifecycle, tracking, and operations dashboard." />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Hind+Siliguri:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+</head>
+
+<body class="bg-neutral-50 text-neutral-900 antialiased font-sans selection:bg-emerald-500 selection:text-white">
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+
+</html>
