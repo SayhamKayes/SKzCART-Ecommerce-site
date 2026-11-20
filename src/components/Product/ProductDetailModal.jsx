@@ -145,6 +145,8 @@ const ProductDetailModal = ({
 
   const lastModalProdIdRef = useRef(null);
 
+  const lastTrackedViewProdIdRef = useRef(null);
+
   useEffect(() => {
     if (product && lastModalProdIdRef.current !== product.id) {
       lastModalProdIdRef.current = product.id;
@@ -161,6 +163,12 @@ const ProductDetailModal = ({
         transform: 'scale(1)',
         transition: 'transform 0.25s ease-out'
       });
+    }
+  }, [product?.id, product?.productType, allImages]);
+
+  useEffect(() => {
+    if (product?.id && lastTrackedViewProdIdRef.current !== product.id) {
+      lastTrackedViewProdIdRef.current = product.id;
       marketingTracker.track('ViewContent', {
         productId: product.id,
         name: product.name,
@@ -171,7 +179,7 @@ const ProductDetailModal = ({
         productId: product.id
       });
     }
-  }, [product?.id, product?.productType, allImages]);
+  }, [product?.id]);
 
   const activePrice = (selectedVariantObj && typeof selectedVariantObj === 'object' && selectedVariantObj.price !== undefined && selectedVariantObj.price !== null)
     ? selectedVariantObj.price
