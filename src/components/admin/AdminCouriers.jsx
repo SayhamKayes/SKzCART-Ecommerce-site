@@ -240,31 +240,6 @@ const AdminCouriers = ({ orders, onRefresh, onOpenRiderPortal }) => {
 
   return (
     <div className="space-y-6">
-      {/* Top Banner */}
-      <div className="bg-white rounded-3xl p-6 border border-neutral-200 shadow-xs flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full">
-            {"Unified Courier Integration"}
-          </span>
-          <h1 className="text-2xl font-black text-neutral-900 mt-2">
-            {"Courier Services & Automated Dispatch"}
-          </h1>
-          <p className="text-xs text-neutral-500">
-            {"Steadfast, Pathao, RedX and eCourier integration. Click any courier card to view live balance, webhook URL, and credentials."}
-          </p>
-        </div>
-
-        {onOpenRiderPortal && (
-          <button
-            onClick={onOpenRiderPortal}
-            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-2 transition-colors shadow-md cursor-pointer"
-          >
-            <Truck className="w-4 h-4 text-emerald-200" />
-            <span>{"🚚 Live Rider Delivery Portal"}</span>
-          </button>
-        )}
-      </div>
-
       {/* COD Financial Reconciliation Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-2xl p-5 border border-neutral-200 shadow-xs">
