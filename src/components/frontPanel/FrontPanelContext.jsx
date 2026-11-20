@@ -230,7 +230,7 @@ export const FrontPanelProvider = ({ children }) => {
     const shopName = themeConfig.shop?.name;
     const tagline = themeConfig.shop?.tagline;
     if (shopName) {
-      document.title = tagline ? `${shopName} • ${tagline}` : shopName;
+      document.title = tagline ? `${shopName} | ${tagline}` : shopName;
     }
 
     const faviconUrl = themeConfig.shop?.faviconUrl;
