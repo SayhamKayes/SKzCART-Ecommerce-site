@@ -3,30 +3,6 @@ import { ShieldCheck, Lock, User, AlertCircle, ArrowLeft, KeyRound, Mail, CheckC
 import { useThemeConfig } from "../frontPanel/FrontPanelContext";
 import { apiClient } from "../../services/api";
 
-const DEFAULT_STAFF_FALLBACK = [
-  {
-    id: "staff-admin-root",
-    name: "Super Admin (Owner)",
-    username: import.meta.env.VITE_ADMIN_USER || "admin",
-    password: import.meta.env.VITE_ADMIN_PASS || "admin1234",
-    role: "ADMIN"
-  },
-  {
-    id: "staff-manager-demo",
-    name: "Operations Manager",
-    username: import.meta.env.VITE_MANAGER_USER || "manager",
-    password: import.meta.env.VITE_MANAGER_PASS || "manager1234",
-    role: "MANAGER"
-  },
-  {
-    id: "staff-dispatcher-demo",
-    name: "Delivery Dispatcher",
-    username: import.meta.env.VITE_DISPATCHER_USER || "dispatcher",
-    password: import.meta.env.VITE_DISPATCHER_PASS || "dispatcher1234",
-    role: "DISPATCHER"
-  }
-];
-
 const AdminLoginModal = ({
   onSuccess,
   onBackToStore
@@ -103,23 +79,9 @@ const AdminLoginModal = ({
         return;
       }
 
-      if (!res?.networkError) {
-        setError(res?.message || "Invalid username or password. Please try again.");
-        setLoading(false);
-        return;
-      }
+      setError(res?.message || "Invalid username or password. Please try again.");
     } catch {
-      // Fallback only when backend is unreachable offline
-    }
-
-    const matchedLocal = DEFAULT_STAFF_FALLBACK.find(
-      (s) => s.username.toLowerCase() === cleanUser && s.password === cleanPass
-    );
-
-    if (matchedLocal) {
-      onSuccess(matchedLocal);
-    } else {
-      setError("Invalid username or password. Please try again.");
+      setError("Unable to reach authentication server. Please check your connection and try again.");
     }
 
     setLoading(false);
