@@ -241,6 +241,43 @@ export const DEFAULT_THEME_CONFIG = {
         enabled: true,
       },
     ],
+
+    // Product Editorial Section 5: Dynamic WooCommerce-style Delivery Cost & Shipping Zones
+    deliveryZones: [
+      {
+        id: "zone-inside-dhaka",
+        name: "Dhaka City",
+        zoneKey: "inside_dhaka",
+        districts: ["Dhaka"],
+        cost: 70,
+        freeShippingMinOrder: 0,
+        estimatedDays: "1-2 Days",
+        enabled: true,
+        isDefaultFallback: false,
+      },
+      {
+        id: "zone-sub-dhaka",
+        name: "Sub-Dhaka",
+        zoneKey: "sub_dhaka",
+        districts: ["Gazipur", "Narayanganj", "Munshiganj", "Manikganj", "Narsingdi"],
+        cost: 100,
+        freeShippingMinOrder: 0,
+        estimatedDays: "2-3 Days",
+        enabled: true,
+        isDefaultFallback: false,
+      },
+      {
+        id: "zone-outside-dhaka",
+        name: "Rest of Bangladesh (Outside Dhaka)",
+        zoneKey: "outside_dhaka",
+        districts: [],
+        cost: 130,
+        freeShippingMinOrder: 0,
+        estimatedDays: "2-5 Days",
+        enabled: true,
+        isDefaultFallback: true,
+      },
+    ],
   },
 
   // Future Store Page Configuration
