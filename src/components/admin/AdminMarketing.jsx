@@ -158,6 +158,7 @@ const AdminMarketing = ({
   const [metaConnection, setMetaConnection] = useState(null);
   const [hasServerOAuthApp, setHasServerOAuthApp] = useState(false);
   const [saasCampaigns, setSaasCampaigns] = useState([]);
+  const [utmCampaigns, setUtmCampaigns] = useState([]);
   const [expandedCampaignIds, setExpandedCampaignIds] = useState({});
   const [adSetBudgetEdits, setAdSetBudgetEdits] = useState({});
   const [savingAdSetId, setSavingAdSetId] = useState("");
@@ -618,145 +619,59 @@ const AdminMarketing = ({
   const [newCampSpend, setNewCampSpend] = useState("");
   const [newCampClicks, setNewCampClicks] = useState("");
 
-  // Persistent Custom Campaigns (Backend DB synced via themeConfig.marketingCampaigns)
-  const mktCfg = themeConfig?.marketingCampaigns || {};
-
-  const customCampaigns = useMemo(() => {
-    if (Array.isArray(mktCfg.customCampaigns) && mktCfg.customCampaigns.length > 0) {
-      return mktCfg.customCampaigns;
-    }
-    try {
-      const saved = localStorage.getItem("amardokan_custom_campaigns");
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  }, [mktCfg.customCampaigns]);
-
-  const deletedCampaignIds = useMemo(() => {
-    if (Array.isArray(mktCfg.deletedCampaignIds) && mktCfg.deletedCampaignIds.length > 0) {
-      return mktCfg.deletedCampaignIds;
-    }
-    try {
-      const saved = localStorage.getItem("amardokan_deleted_campaigns");
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  }, [mktCfg.deletedCampaignIds]);
-
-  const pausedCampaignIds = useMemo(() => {
-    if (Array.isArray(mktCfg.pausedCampaignIds) && mktCfg.pausedCampaignIds.length > 0) {
-      return mktCfg.pausedCampaignIds;
-    }
-    try {
-      const saved = localStorage.getItem("amardokan_paused_campaigns");
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  }, [mktCfg.pausedCampaignIds]);
-
-  const persistMarketingCampaigns = (nextPartial) => {
-    const nextState = {
-      customCampaigns: nextPartial.customCampaigns ?? customCampaigns,
-      deletedCampaignIds: nextPartial.deletedCampaignIds ?? deletedCampaignIds,
-      pausedCampaignIds: nextPartial.pausedCampaignIds ?? pausedCampaignIds,
-    };
-    updateThemeConfig("marketingCampaigns", nextState);
-    try {
-      localStorage.setItem("amardokan_custom_campaigns", JSON.stringify(nextState.customCampaigns));
-      localStorage.setItem("amardokan_deleted_campaigns", JSON.stringify(nextState.deletedCampaignIds));
-      localStorage.setItem("amardokan_paused_campaigns", JSON.stringify(nextState.pausedCampaignIds));
-    } catch {}
-  };
-
-  const saveCustomCampaigns = (updated) => {
-    persistMarketingCampaigns({ customCampaigns: updated });
-  };
-
   // Delete Campaign Confirmation Modal state
   const [campaignToDelete, setCampaignToDelete] = useState(null);
   const [actionSuccessMsg, setActionSuccessMsg] = useState("");
 
-  // Toggle Campaign On / Off (Active / Paused)
-  const handleToggleCampaignStatus = (camp) => {
+  // Toggle DB-Persisted UTM Campaign On / Off (Active / Paused)
+  const handleToggleCampaignStatus = async (camp) => {
     const targetId = camp.id;
-    const isCurrentlyPaused = pausedCampaignIds.includes(targetId) || camp.status === "paused";
-    let nextPaused;
+    const isCurrentlyPaused = Boolean(camp.isPaused) || camp.status === "paused";
+    const nextPaused = !isCurrentlyPaused;
 
-    if (isCurrentlyPaused) {
-      // Turn ON
-      nextPaused = pausedCampaignIds.filter((id) => id !== targetId);
-      setActionSuccessMsg(
-        `Campaign "${camp.name}" turned ON (Active)!`
-      );
-    } else {
-      // Turn OFF
-      nextPaused = Array.from(new Set([...pausedCampaignIds, targetId]));
-      setActionSuccessMsg(
-        `Campaign "${camp.name}" turned OFF (Paused)!`
-      );
+    try {
+      const res = await apiClient.updateUtmCampaign(targetId, { isPaused: nextPaused });
+      if (res && res.success && res.campaign) {
+        setUtmCampaigns((prev) => prev.map((c) => (c.id === targetId ? res.campaign : c)));
+        setActionSuccessMsg(
+          nextPaused
+            ? `Campaign "${camp.name}" turned OFF (Paused)!`
+            : `Campaign "${camp.name}" turned ON (Active)!`
+        );
+        setTimeout(() => setActionSuccessMsg(""), 4000);
+      } else {
+        setMetaSyncMsg(res?.message || "Failed to update campaign status.");
+      }
+    } catch (err) {
+      setMetaSyncMsg(err.message || "Failed to update campaign status.");
     }
-
-    let updatedCustom = customCampaigns;
-    if (camp.isCustom || camp.id.startsWith("camp-custom-") || camp.id.startsWith("meta-")) {
-      updatedCustom = customCampaigns.map((c) =>
-        c.id === targetId ? { ...c, status: isCurrentlyPaused ? "active" : "paused" } : c
-      );
-    }
-
-    persistMarketingCampaigns({
-      pausedCampaignIds: nextPaused,
-      customCampaigns: updatedCustom,
-    });
-
-    setTimeout(() => setActionSuccessMsg(""), 4000);
   };
 
-  // Confirm and permanently delete campaign
-  const confirmDeleteCampaign = () => {
+  // Confirm and permanently delete DB-persisted UTM campaign (or Meta SaaS campaign)
+  const confirmDeleteCampaign = async () => {
     if (!campaignToDelete) return;
     if (campaignToDelete.isSaasCampaign) {
-      handleDeleteSaasCampaign(campaignToDelete);
+      await handleDeleteSaasCampaign(campaignToDelete);
       return;
     }
     const targetId = campaignToDelete.id;
-
-    const updatedCustom = customCampaigns.filter((c) => c.id !== targetId);
-    const nextDeleted = Array.from(new Set([...deletedCampaignIds, targetId]));
-    const nextPaused = pausedCampaignIds.filter((id) => id !== targetId);
-
-    persistMarketingCampaigns({
-      customCampaigns: updatedCustom,
-      deletedCampaignIds: nextDeleted,
-      pausedCampaignIds: nextPaused,
-    });
-
-    setActionSuccessMsg(
-      `Campaign "${campaignToDelete.name}" deleted successfully!`
-    );
-    setTimeout(() => setActionSuccessMsg(""), 4000);
-    setCampaignToDelete(null);
+    try {
+      const res = await apiClient.deleteUtmCampaign(targetId);
+      if (res && res.success) {
+        setUtmCampaigns((prev) => prev.filter((c) => c.id !== targetId));
+        setActionSuccessMsg(`Campaign "${campaignToDelete.name}" deleted from database!`);
+        setTimeout(() => setActionSuccessMsg(""), 4000);
+      } else {
+        setMetaSyncMsg(res?.message || "Failed to delete campaign.");
+      }
+    } catch (err) {
+      setMetaSyncMsg(err.message || "Failed to delete campaign.");
+    } finally {
+      setCampaignToDelete(null);
+    }
   };
 
-  // Dynamic product funnel campaigns (100% live data—no hardcoded static clicks, orders, or revenue)
-  const baseCampaigns = useMemo(() => {
-    return (Array.isArray(products) ? products : []).slice(0, 5).map((p, idx) => ({
-      id: `camp-prod-${p.id || idx + 1}`,
-      campaignNumber: idx + 1,
-      name: `Product Campaign ${idx + 1}: ${p.name} (Meta Funnel)`,
-      source: "facebook",
-      productId: p.id,
-      productName: p.name,
-      spend: 0,
-      clicks: 0,
-      baseOrders: 0,
-      baseRevenue: 0,
-    }));
-  }, [products]);
-
-  // Combine live SaaS Meta DB campaigns + local/UTM product funnel links
+  // Combine live SaaS Meta DB campaigns + DB-persisted custom UTM tracking campaigns
   const normalizedSaasCampaigns = useMemo(() => {
     return (Array.isArray(saasCampaigns) ? saasCampaigns : []).map((sc, idx) => {
       const isPaused = String(sc.status || "").toUpperCase() !== "ACTIVE";
@@ -777,24 +692,22 @@ const AdminMarketing = ({
   }, [saasCampaigns]);
 
   const allCampaigns = useMemo(() => {
-    const baseFiltered = activeTenantId === "default" ? [...baseCampaigns, ...(Array.isArray(customCampaigns) ? customCampaigns : [])] : (Array.isArray(customCampaigns) ? customCampaigns : []);
-    const delSet = Array.isArray(deletedCampaignIds) ? deletedCampaignIds : [];
-    const pausedSet = Array.isArray(pausedCampaignIds) ? pausedCampaignIds : [];
-    return baseFiltered
-      .filter((camp) => camp && camp.id && !delSet.includes(camp.id))
-      .map((camp) => {
-        const isPaused = pausedSet.includes(camp.id) || camp.status === "paused";
+    return (Array.isArray(utmCampaigns) ? utmCampaigns : [])
+      .filter((camp) => camp && camp.id)
+      .map((camp, idx) => {
+        const isPaused = Boolean(camp.isPaused);
         return {
           ...camp,
+          campaignNumber: idx + 1,
           source: String(camp.source || "facebook"),
           name: String(camp.name || "Ad Campaign"),
-          productName: String(camp.productName || "Store Catalog"),
+          productName: String(camp.productName || "Entire Store Catalog"),
           isSaasCampaign: false,
           isPaused,
           status: isPaused ? "paused" : "active",
         };
       });
-  }, [baseCampaigns, customCampaigns, deletedCampaignIds, pausedCampaignIds, activeTenantId]);
+  }, [utmCampaigns]);
 
   // Dynamic attribution from real confirmed orders + live Meta Insights
   const campaignStats = useMemo(() => {
@@ -939,9 +852,10 @@ const AdminMarketing = ({
 
   const loadSaasAdsWorkspace = async () => {
     try {
-      const [connRes, campsRes] = await Promise.all([
+      const [connRes, campsRes, utmList] = await Promise.all([
         apiClient.getMetaConnection(),
         apiClient.getMetaCampaigns(),
+        apiClient.getUtmCampaigns(),
       ]);
       if (connRes?.success) {
         setMetaConnection(connRes.connection || null);
@@ -949,6 +863,9 @@ const AdminMarketing = ({
       }
       if (campsRes?.success && Array.isArray(campsRes.campaigns)) {
         setSaasCampaigns(campsRes.campaigns);
+      }
+      if (Array.isArray(utmList)) {
+        setUtmCampaigns(utmList);
       }
     } catch (err) {
       console.warn("Failed to load Meta Ads workspace:", err);
@@ -1026,8 +943,8 @@ const AdminMarketing = ({
     }
   };
 
-  // Add campaign submit with automatic sequential naming
-  const handleCreateCampaign = (e) => {
+  // Add DB-persisted UTM campaign
+  const handleCreateCampaign = async (e) => {
     e.preventDefault();
     if (!newCampName.trim()) return;
 
@@ -1042,29 +959,41 @@ const AdminMarketing = ({
       ? newCampName.trim()
       : `Product Campaign ${nextNumber}: ${newCampName.trim()} (${newCampSource.toUpperCase()} Ads)`;
 
-    const created = {
-      id: `camp-custom-${Date.now()}`,
-      campaignNumber: nextNumber,
-      name: formattedName,
-      source: newCampSource,
-      productId: newCampProductId || "all",
-      productName: prodName,
-      spend: Number(newCampSpend) || 0,
-      clicks: Number(newCampClicks) || 0,
-      baseOrders: 0,
-      baseRevenue: 0,
-      isCustom: true,
-    };
+    const utmSlug = newCampName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "campaign";
+    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+    const generatedLanding =
+      newCampProductId !== "all"
+        ? `${baseUrl}/campaign-products?product=${newCampProductId}&utm_source=${newCampSource}&utm_campaign=${utmSlug}`
+        : `${baseUrl}/?utm_source=${newCampSource}&utm_campaign=${utmSlug}`;
 
-    const updated = [created, ...customCampaigns];
-    saveCustomCampaigns(updated);
+    try {
+      const res = await apiClient.createUtmCampaign({
+        name: formattedName,
+        source: newCampSource,
+        productId: newCampProductId || "all",
+        productName: prodName,
+        utmCampaign: utmSlug,
+        landingUrl: generatedLanding,
+        spend: Number(newCampSpend) || 0,
+        clicks: Number(newCampClicks) || 0,
+        isPaused: false,
+      });
 
-    // Reset form & close
-    setNewCampName("");
-    setNewCampSpend("");
-    setNewCampClicks("");
-    setIsAddCampaignOpen(false);
-    setCurrentPage(1);
+      if (res && res.success && res.campaign) {
+        setUtmCampaigns((prev) => [res.campaign, ...prev]);
+        setActionSuccessMsg(`Campaign "${res.campaign.name}" saved to database!`);
+        setTimeout(() => setActionSuccessMsg(""), 4000);
+        setNewCampName("");
+        setNewCampSpend("");
+        setNewCampClicks("");
+        setIsAddCampaignOpen(false);
+        setCurrentPage(1);
+      } else {
+        setMetaSyncMsg(res?.message || "Failed to save UTM campaign.");
+      }
+    } catch (err) {
+      setMetaSyncMsg(err.message || "Failed to create UTM campaign.");
+    }
   };
 
   return (
