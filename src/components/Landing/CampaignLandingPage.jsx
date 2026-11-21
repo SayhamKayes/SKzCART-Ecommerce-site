@@ -40,6 +40,7 @@ import {
   renderTrustBadgeIcon,
   resolveEditorialConfig,
   formatEditorialCardText,
+  resolveDeliveryCost,
 } from "../../utils/productEditorial";
 import { getLocalizedProductName } from "../../utils/translations";
 import { buildBgStyle } from "../../utils/themeHelper";
@@ -182,14 +183,17 @@ export function CampaignLandingPage({
 
   const activePrice = (selectedVariantObj && typeof selectedVariantObj === 'object' && selectedVariantObj.price !== undefined && selectedVariantObj.price !== null)
     ? Number(selectedVariantObj.price)
-    : (Number(product.price) || 790);
-  const activeRegularPrice = (selectedVariantObj && typeof selectedVariantObj === 'object' && selectedVariantObj.regularPrice !== undefined && selectedVariantObj.regularPrice !== null)
+    : Number(product.price || 0);
+  const rawRegularPrice = (selectedVariantObj && typeof selectedVariantObj === 'object' && selectedVariantObj.regularPrice !== undefined && selectedVariantObj.regularPrice !== null)
     ? Number(selectedVariantObj.regularPrice)
-    : (Number(product.originalPrice || product.regularPrice) || (activePrice + 460));
+    : Number(product.originalPrice || product.regularPrice || 0);
+  const activeRegularPrice = rawRegularPrice > activePrice ? rawRegularPrice : activePrice;
   const currentPrice = activePrice;
   const originalPrice = activeRegularPrice;
   const discountAmount = Math.max(0, originalPrice - currentPrice);
-  const discountPct = product.discountPercent || Math.round((discountAmount / originalPrice) * 100);
+  const discountPct = discountAmount > 0 && originalPrice > 0
+    ? (product.discountPercent || Math.round((discountAmount / originalPrice) * 100))
+    : 0;
 
   const [qty, setQty] = useState(1);
   const [district, setDistrict] = useState(currentUser?.district || "Dhaka");
@@ -416,20 +420,15 @@ export function CampaignLandingPage({
     }
   }, [primaryImage, selectedImage]);
 
-  const deliveryZone = useMemo(() => {
-    if (district === "Dhaka") return "INSIDE_DHAKA";
-    const subDhakaDistricts = ["Gazipur", "Narayanganj", "Munshiganj", "Manikganj", "Narsingdi"];
-    if (subDhakaDistricts.includes(district)) return "SUB_DHAKA";
-    return "OUTSIDE_DHAKA";
-  }, [district]);
-
-  const deliveryFee = useMemo(() => {
-    if (deliveryZone === "INSIDE_DHAKA") return 70;
-    if (deliveryZone === "SUB_DHAKA") return 100;
-    return 130;
-  }, [deliveryZone]);
-
   const subtotal = currentPrice * qty;
+
+  const deliveryResolution = useMemo(() => {
+    return resolveDeliveryCost(district, subtotal, prodEditorial);
+  }, [district, subtotal, prodEditorial]);
+
+  const deliveryZone = deliveryResolution.zoneKey;
+  const deliveryFee = deliveryResolution.fee;
+
   const couponDiscount = appliedCoupon
     ? appliedCoupon.discountType === "percentage"
       ? Math.round((subtotal * appliedCoupon.value) / 100)
@@ -1844,11 +1843,14 @@ export function CampaignLandingPage({
                               onChange={(e) => handleDistrictChange(e.target.value)}
                               className="w-full px-3.5 py-3 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 text-sm outline-none transition-all bg-white font-medium cursor-pointer"
                             >
-                              {BANGLADESH_DISTRICTS.map((d) => (
-                                <option key={d} value={d}>
-                                  {d} {d === "Dhaka" ? "(৳70)" : ["Gazipur", "Narayanganj", "Munshiganj", "Manikganj", "Narsingdi"].includes(d) ? "(৳100)" : "(৳130)"}
-                                </option>
-                              ))}
+                              {BANGLADESH_DISTRICTS.map((d) => {
+                                const dCost = resolveDeliveryCost(d, subtotal, prodEditorial);
+                                return (
+                                  <option key={d} value={d}>
+                                    {d} ({dCost.isFreeShipping ? "Free" : `৳${dCost.fee}`})
+                                  </option>
+                                );
+                              })}
                             </select>
                             {field.helperText && (
                               <p className="text-[11px] text-neutral-500 mt-1">{field.helperText}</p>
