@@ -55,15 +55,6 @@ const Graph = ({
       });
     }
 
-    // Fallback: If dates are outside the range but orders exist, distribute them smoothly
-    const totalGrouped = days.reduce((sum, item) => sum + item.revenue, 0);
-    if (totalGrouped === 0 && orders.length > 0) {
-      orders.forEach((o, idx) => {
-        const bucket = idx % 7;
-        days[bucket].revenue += Number(o.total) || 0;
-      });
-    }
-
     return days;
   }, [orders, isEnglish]);
 
