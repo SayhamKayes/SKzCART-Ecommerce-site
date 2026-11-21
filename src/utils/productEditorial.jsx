@@ -80,6 +80,81 @@ export function resolveEditorialConfig(themeConfig) {
     trustBadges: Array.isArray(raw.trustBadges)
       ? raw.trustBadges
       : defaults.trustBadges || [],
+    deliveryZones: Array.isArray(raw.deliveryZones)
+      ? raw.deliveryZones
+      : defaults.deliveryZones || [],
+  };
+}
+
+/**
+ * Dynamically resolves WooCommerce-style delivery zone, base cost, and effective fee
+ * (with optional Free Shipping minimum order threshold) from Product Editorial settings.
+ */
+export function resolveDeliveryCost(district = "", subtotal = 0, editorialOrTheme = null) {
+  const source =
+    editorialOrTheme && Array.isArray(editorialOrTheme.deliveryZones)
+      ? editorialOrTheme
+      : resolveEditorialConfig(editorialOrTheme);
+
+  const zones = Array.isArray(source.deliveryZones) ? source.deliveryZones : [];
+  const enabledZones = zones.filter((z) => z && z.enabled !== false);
+  const normDistrict = String(district || "").trim().toLowerCase();
+  const orderSubtotal = Number(subtotal || 0);
+
+  let matchedZone = null;
+
+  // Pass 1: Match explicit district zones (non-fallback)
+  for (const z of enabledZones) {
+    if (z.isDefaultFallback) continue;
+    const list = Array.isArray(z.districts)
+      ? z.districts.map((d) => String(d || "").trim().toLowerCase()).filter(Boolean)
+      : [];
+    if (normDistrict && list.includes(normDistrict)) {
+      matchedZone = z;
+      break;
+    }
+  }
+
+  // Pass 2: Fallback / Rest of Bangladesh zone
+  if (!matchedZone) {
+    for (const z of enabledZones) {
+      const list = Array.isArray(z.districts)
+        ? z.districts.map((d) => String(d || "").trim().toLowerCase()).filter(Boolean)
+        : [];
+      if (z.isDefaultFallback || list.length === 0) {
+        matchedZone = z;
+        break;
+      }
+    }
+  }
+
+  if (!matchedZone) {
+    return {
+      fee: 0,
+      baseCost: 0,
+      isFreeShipping: true,
+      freeShippingMinOrder: 0,
+      zoneName: "Free Delivery",
+      zoneKey: "free",
+      estimatedDays: "",
+      matchedZone: null,
+    };
+  }
+
+  const baseCost = Math.max(0, Math.round(Number(matchedZone.cost || 0)));
+  const freeMin = Math.max(0, Number(matchedZone.freeShippingMinOrder || 0));
+  const isFreeShipping = baseCost === 0 || (freeMin > 0 && orderSubtotal >= freeMin);
+  const effectiveFee = isFreeShipping ? 0 : baseCost;
+
+  return {
+    fee: effectiveFee,
+    baseCost,
+    isFreeShipping,
+    freeShippingMinOrder: freeMin,
+    zoneName: matchedZone.name || "Standard Delivery",
+    zoneKey: matchedZone.zoneKey || matchedZone.id || "custom_zone",
+    estimatedDays: matchedZone.estimatedDays || "",
+    matchedZone,
   };
 }
 
