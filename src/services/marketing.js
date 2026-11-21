@@ -24,8 +24,11 @@ export class MarketingTracker {
     this.pixelInitialized = false;
     this.ga4Initialized = false;
     this.initialized = false;
+    this.configReady = false;
     this._recentTrackTimestamps = new Map();
     this._trackedOrderPurchases = new Set();
+    this._pendingQueue = [];
+    this._initializedPixelIds = new Set();
 
     if (typeof window !== 'undefined') {
       this.init();
@@ -33,18 +36,42 @@ export class MarketingTracker {
   }
 
   async init() {
-    try {
-      const serverConfig = await apiClient.getMarketingConfig();
-      if (serverConfig) {
-        this.applyConfig(serverConfig);
+    const retryDelays = [0, 1500, 3000];
+    let serverConfig = null;
+
+    for (let attempt = 0; attempt < retryDelays.length; attempt += 1) {
+      if (retryDelays[attempt] > 0) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelays[attempt]));
       }
+      try {
+        const fetched = await apiClient.getMarketingConfig();
+        if (fetched) {
+          serverConfig = fetched;
+          break;
+        }
+      } catch (err) {
+        if (attempt === retryDelays.length - 1) {
+          console.warn('[MarketingTracker] Initial sync warning:', err);
+        }
+      }
+    }
+
+    if (serverConfig) {
+      this.applyConfig(serverConfig);
+    } else {
+      this.configReady = true;
+      this.flushPendingQueue();
+    }
+
+    try {
       const remoteEvents = await apiClient.getMarketingEvents();
       if (remoteEvents && remoteEvents.length > 0) {
         this.events = remoteEvents;
       }
     } catch (err) {
-      console.warn('[MarketingTracker] Initial sync warning:', err);
+      console.warn('[MarketingTracker] Initial events warning:', err);
     }
+
     this.initialized = true;
 
     if (typeof window !== 'undefined') {
@@ -56,8 +83,25 @@ export class MarketingTracker {
     }
   }
 
+  flushPendingQueue() {
+    if (!this._pendingQueue.length) return;
+    const queued = [...this._pendingQueue];
+    this._pendingQueue = [];
+    for (const item of queued) {
+      this._executeTrack(item.eventName, item.data, item.context);
+    }
+  }
+
   applyConfig(config) {
-    this.config = { ...this.config, ...config };
+    const normalized = config ? { ...config } : {};
+    if (typeof normalized.pixelId === 'string') normalized.pixelId = normalized.pixelId.trim();
+    if (typeof normalized.capiToken === 'string') normalized.capiToken = normalized.capiToken.trim();
+    if (typeof normalized.ga4Id === 'string') normalized.ga4Id = normalized.ga4Id.trim();
+    if (typeof normalized.testEventCode === 'string') normalized.testEventCode = normalized.testEventCode.trim();
+
+    this.config = { ...this.config, ...normalized };
+    this.configReady = true;
+
     if (typeof window !== 'undefined' && config && 'isActive' in config) {
       try {
         localStorage.setItem('amardokan_marketing_is_active', JSON.stringify(Boolean(this.config.isActive)));
@@ -65,6 +109,7 @@ export class MarketingTracker {
     }
 
     if (!this.config.isActive) {
+      this._pendingQueue = [];
       return;
     }
 
@@ -78,10 +123,14 @@ export class MarketingTracker {
         this.injectGA4(this.config.ga4Id);
       }
     }
+
+    this.flushPendingQueue();
   }
 
   injectMetaPixel(pixelId) {
     if (typeof window === 'undefined') return;
+    const cleanPixelId = String(pixelId || '').trim();
+    if (!cleanPixelId) return;
 
     if (!window.fbq) {
       /* eslint-disable */
@@ -105,9 +154,12 @@ export class MarketingTracker {
     }
 
     try {
-      window.fbq('init', pixelId);
+      if (!this._initializedPixelIds.has(cleanPixelId)) {
+        window.fbq('init', cleanPixelId);
+        this._initializedPixelIds.add(cleanPixelId);
+        console.log(`[Meta Pixel Initialized] Pixel ID: ${cleanPixelId}`);
+      }
       this.pixelInitialized = true;
-      console.log(`[Meta Pixel Initialized] Pixel ID: ${pixelId}`);
     } catch (e) {
       console.warn('[Meta Pixel Init Error]:', e);
     }
@@ -153,6 +205,16 @@ export class MarketingTracker {
   }
 
   track(eventName, data = {}, context = {}) {
+    if (typeof window !== 'undefined' && !this.configReady && context.source !== 'admin_test_console') {
+      if (this._pendingQueue.length < 25) {
+        this._pendingQueue.push({ eventName, data, context });
+      }
+      return `pending_${eventName.toLowerCase()}_${Date.now()}`;
+    }
+    return this._executeTrack(eventName, data, context);
+  }
+
+  _executeTrack(eventName, data = {}, context = {}) {
     const combinedContext = { ...data, ...context };
     const eventId = this.generateEventId(eventName.toLowerCase());
     const timestamp = new Date().toISOString();
@@ -160,6 +222,10 @@ export class MarketingTracker {
     const isEligible = this.isScopeActive(combinedContext);
     if (!isEligible) {
       return null;
+    }
+
+    if (typeof window !== 'undefined' && this.config.pixelId && !window.fbq) {
+      this.injectMetaPixel(this.config.pixelId);
     }
 
     const productName = data.productName || data.name || data.content_name || (data.items && data.items.map(i => i.name).filter(Boolean).join(', ')) || '';
@@ -183,6 +249,10 @@ export class MarketingTracker {
       this._recentTrackTimestamps.set(dedupKey, nowMs);
     }
 
+    const hasBrowserPixel = Boolean(
+      this.config.pixelId && typeof window !== 'undefined' && typeof window.fbq === 'function'
+    );
+
     const eventRecord = {
       id: 'mkt-' + Math.random().toString(36).substring(2, 9),
       eventId,
@@ -190,7 +260,7 @@ export class MarketingTracker {
       timestamp,
       productName,
       productId,
-      browserReported: !!this.config.pixelId,
+      browserReported: hasBrowserPixel,
       serverCapiReported: !!this.config.capiToken,
       source: data.source || 'direct',
       campaign: data.campaign,
@@ -216,15 +286,8 @@ export class MarketingTracker {
     };
 
     // 1. Browser Meta Pixel Execution
-    if (typeof window !== 'undefined' && window.fbq) {
+    if (hasBrowserPixel) {
       try {
-        const pixelData = {
-          currency: data.currency || 'BDT',
-          value: data.value || 0,
-          content_name: productName || undefined,
-          content_ids: productId ? [productId] : data.content_ids || undefined,
-          content_type: 'product',
-        };
         const standardEvents = new Set([
           'PageView',
           'ViewContent',
@@ -235,6 +298,16 @@ export class MarketingTracker {
           'Search',
         ]);
         const fbqMethod = standardEvents.has(eventName) ? 'track' : 'trackCustom';
+        const pixelData =
+          eventName === 'PageView'
+            ? {}
+            : {
+                currency: data.currency || 'BDT',
+                value: data.value || 0,
+                content_name: productName || undefined,
+                content_ids: productId ? [productId] : data.content_ids || undefined,
+                content_type: 'product',
+              };
         window.fbq(fbqMethod, eventName, pixelData, { eventID: eventId });
       } catch (err) {
         console.warn('[Browser Pixel track error]:', err);
@@ -260,6 +333,7 @@ export class MarketingTracker {
       .sendCAPIEvent({
         eventName,
         eventId,
+        browserReported: hasBrowserPixel,
         eventSourceUrl: typeof window !== 'undefined' ? window.location.href : '',
         source: data.source || 'website',
         campaign: data.campaign || '',
