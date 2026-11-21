@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 import {
   BANGLADESH_DISTRICTS,
-  calculateDeliveryFee,
   formatBDT,
   isValidBangladeshPhone,
   normalizeBangladeshPhone,
@@ -29,6 +28,8 @@ import { apiClient } from "../../services/api";
 import { marketingTracker } from "../../services/marketing";
 import { realtimeService } from "../../services/realtime";
 import { useLanguage } from "../../Context/LanguageContext";
+import { useThemeConfig } from "../frontPanel/FrontPanelContext";
+import { resolveDeliveryCost } from "../../utils/productEditorial";
 import { CustomModal } from "../common/CustomModal";
 import { DEFAULT_PAYMENT_METHODS, formatAccountTypeLabel } from "../../utils/paymentConfig";
 import codImg from "../../assets/COD.png";
@@ -46,6 +47,7 @@ const GuestCheckoutModal = ({
   onUpdateQuantity,
 }) => {
   const { isEnglish, t } = useLanguage();
+  const { themeConfig } = useThemeConfig();
   if (!isOpen || !items || items.length === 0) return null;
 
   // Local copy of items to allow instant quantity adjustment inside modal
@@ -228,10 +230,10 @@ const GuestCheckoutModal = ({
   const totalItemCount = localItems.reduce((acc, item) => acc + item.quantity, 0);
   const subtotal = localItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
 
-  // Delivery fee calculation: Dhaka City ৳70, Sub-Dhaka ৳100, Outside Dhaka ৳130
-  const deliveryCalc = calculateDeliveryFee(district, thana);
-  const deliveryFee = district.toLowerCase() === "dhaka" ? 70 : deliveryCalc.fee;
-  const zone = deliveryCalc.zone;
+  // Dynamic delivery fee resolved from Product Editorial -> Delivery Cost zones
+  const deliveryCalc = resolveDeliveryCost(district, subtotal, themeConfig?.productPage);
+  const deliveryFee = deliveryCalc.fee;
+  const zone = deliveryCalc.zoneKey;
 
   const discount = coupon
     ? coupon.discountType === "percentage"
@@ -595,16 +597,14 @@ const GuestCheckoutModal = ({
                         onChange={(e) => handleDistrictChange(e.target.value)}
                         className="w-full px-4 py-3 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 text-sm outline-none transition-all bg-white font-medium cursor-pointer"
                       >
-                        {BANGLADESH_DISTRICTS.map((dist) => (
-                          <option key={dist} value={dist}>
-                            {dist}{" "}
-                            {dist === "Dhaka"
-                              ? "(Dhaka City ৳70)"
-                              : ["Gazipur", "Narayanganj", "Munshiganj", "Manikganj", "Narsingdi"].includes(dist)
-                                ? "(Sub-Dhaka ৳100)"
-                                : "(Outside Dhaka ৳130)"}
-                          </option>
-                        ))}
+                        {BANGLADESH_DISTRICTS.map((dist) => {
+                          const distCost = resolveDeliveryCost(dist, subtotal, themeConfig?.productPage);
+                          return (
+                            <option key={dist} value={dist}>
+                              {dist} ({distCost.zoneName} • {distCost.isFreeShipping ? "Free" : `৳${distCost.fee}`})
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
 
