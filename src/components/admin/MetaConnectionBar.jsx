@@ -55,13 +55,25 @@ const MetaConnectionBar = ({
       setErrorMsg("");
       setStatusMsg("Exchanging Facebook OAuth authorization & discovering Pages/Ad Accounts...");
       try {
+        let pendingAppId = oauthAppId.trim();
+        let pendingAppSecret = oauthAppSecret.trim();
+        try {
+          const savedRaw = sessionStorage.getItem("amardokan_pending_meta_oauth_app");
+          if (savedRaw) {
+            const saved = JSON.parse(savedRaw);
+            if (!pendingAppId && saved?.appId) pendingAppId = String(saved.appId).trim();
+            if (!pendingAppSecret && saved?.appSecret) pendingAppSecret = String(saved.appSecret).trim();
+            sessionStorage.removeItem("amardokan_pending_meta_oauth_app");
+          }
+        } catch {}
+
         const redirectUri = `${window.location.origin}/admin?tab=adCampaigns`;
         const res = await apiClient.exchangeMetaOAuthCode({
           code,
           state,
           redirectUri,
-          appId: oauthAppId.trim() || undefined,
-          appSecret: oauthAppSecret.trim() || undefined,
+          appId: pendingAppId || undefined,
+          appSecret: pendingAppSecret || undefined,
         });
         if (res && res.success) {
           setStatusMsg("Facebook account connected securely! Choose your Ad Account & Page below.");
@@ -114,6 +126,14 @@ const MetaConnectionBar = ({
         appId: oauthAppId.trim() || undefined,
       });
       if (res && res.success && res.authUrl) {
+        try {
+          if (oauthAppId.trim() || oauthAppSecret.trim()) {
+            sessionStorage.setItem(
+              "amardokan_pending_meta_oauth_app",
+              JSON.stringify({ appId: oauthAppId.trim(), appSecret: oauthAppSecret.trim() })
+            );
+          }
+        } catch {}
         const popup = window.open(
           res.authUrl,
           "MetaOAuthConnect",
