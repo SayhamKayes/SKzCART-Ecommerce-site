@@ -20,9 +20,13 @@ import {
   Columns2,
   GripVertical,
   AlertCircle,
+  Truck,
+  MapPin,
+  Search,
 } from "lucide-react";
 import { useThemeConfig } from "../frontPanel/FrontPanelContext";
 import { DEFAULT_THEME_CONFIG } from "../frontPanel/defaultThemeConfig";
+import { BANGLADESH_DISTRICTS } from "../../utils/bangladesh";
 import {
   TRUST_BADGE_ICON_OPTIONS,
   TRUST_BADGE_COLOR_OPTIONS,
@@ -30,6 +34,7 @@ import {
   renderTrustBadgeIcon,
   resolveEditorialConfig,
   formatEditorialCardText,
+  resolveDeliveryCost,
 } from "../../utils/productEditorial";
 
 const SUB_TABS = [
@@ -37,6 +42,7 @@ const SUB_TABS = [
   { id: "orderHeader", label: "Order Section Header", icon: Type },
   { id: "checkoutForm", label: "Checkout Form Editor", icon: ListChecks },
   { id: "trustBadges", label: "Summary & Quick-View Badges", icon: ShieldCheck },
+  { id: "deliveryCost", label: "Delivery Cost", icon: Truck },
 ];
 
 const CUSTOM_FIELD_TYPES = [
@@ -78,6 +84,10 @@ function cloneEditorialState(sourceConfig) {
       options: Array.isArray(f.options) ? [...f.options] : [],
     })),
     trustBadges: resolved.trustBadges.map((b) => ({ ...b })),
+    deliveryZones: (resolved.deliveryZones || []).map((z) => ({
+      ...z,
+      districts: Array.isArray(z.districts) ? [...z.districts] : [],
+    })),
   };
 }
 
@@ -94,6 +104,14 @@ export const AdminProductEditorial = () => {
   const [isAddingField, setIsAddingField] = useState(false);
   const [fieldOptionsInput, setFieldOptionsInput] = useState("");
   const [fieldModalError, setFieldModalError] = useState("");
+
+  // Section 5: Delivery Cost Zone Editor modal state (WooCommerce Shipping Zones style)
+  const [editingZone, setEditingZone] = useState(null);
+  const [isAddingZone, setIsAddingZone] = useState(false);
+  const [zoneDistrictSearch, setZoneDistrictSearch] = useState("");
+  const [zoneModalError, setZoneModalError] = useState("");
+  const [previewSubtotal, setPreviewSubtotal] = useState(1500);
+  const [previewDistrict, setPreviewDistrict] = useState("Dhaka");
 
   const hasUnsavedRef = useRef(hasUnsavedChanges);
   useEffect(() => {
@@ -376,6 +394,160 @@ export const AdminProductEditorial = () => {
     }));
   };
 
+  // --- Section 5: WooCommerce-Style Delivery Cost & Shipping Zones Handlers ---
+  const handleMoveZone = (idx, dir) => {
+    const zones = Array.isArray(draft.deliveryZones) ? draft.deliveryZones : [];
+    const target = idx + dir;
+    if (target < 0 || target >= zones.length) return;
+    setHasUnsavedChanges(true);
+    setDraft((prev) => {
+      const next = [...(prev.deliveryZones || [])];
+      const [moved] = next.splice(idx, 1);
+      next.splice(target, 0, moved);
+      return { ...prev, deliveryZones: next };
+    });
+  };
+
+  const handleToggleZoneEnabled = (idx) => {
+    setHasUnsavedChanges(true);
+    setDraft((prev) => {
+      const next = [...(prev.deliveryZones || [])];
+      if (!next[idx]) return prev;
+      next[idx] = { ...next[idx], enabled: next[idx].enabled === false };
+      return { ...prev, deliveryZones: next };
+    });
+  };
+
+  const handleDeleteZone = (idx) => {
+    setHasUnsavedChanges(true);
+    setDraft((prev) => ({
+      ...prev,
+      deliveryZones: (prev.deliveryZones || []).filter((_, i) => i !== idx),
+    }));
+  };
+
+  const handleOpenAddZone = () => {
+    setZoneModalError("");
+    setZoneDistrictSearch("");
+    setIsAddingZone(true);
+    setEditingZone({
+      _index: -1,
+      id: `zone-${Date.now()}`,
+      name: "",
+      zoneKey: "",
+      districts: [],
+      cost: 100,
+      freeShippingMinOrder: 0,
+      estimatedDays: "2-3 Days",
+      enabled: true,
+      isDefaultFallback: false,
+    });
+  };
+
+  const handleOpenEditZone = (zone, idx) => {
+    setZoneModalError("");
+    setZoneDistrictSearch("");
+    setIsAddingZone(false);
+    setEditingZone({
+      ...zone,
+      districts: Array.isArray(zone.districts) ? [...zone.districts] : [],
+      _index: idx,
+    });
+  };
+
+  const handleToggleZoneDistrict = (dist) => {
+    setEditingZone((prev) => {
+      if (!prev) return prev;
+      const current = Array.isArray(prev.districts) ? prev.districts : [];
+      const exists = current.includes(dist);
+      return {
+        ...prev,
+        districts: exists ? current.filter((d) => d !== dist) : [...current, dist],
+      };
+    });
+  };
+
+  const handleSaveZoneModal = (e) => {
+    e.preventDefault();
+    if (!editingZone) return;
+    const cleanName = (editingZone.name || "").trim();
+    if (!cleanName) {
+      setZoneModalError("Please enter a Shipping / Delivery Zone name.");
+      return;
+    }
+    const parsedCost = Number(editingZone.cost);
+    if (Number.isNaN(parsedCost) || parsedCost < 0) {
+      setZoneModalError("Delivery cost must be 0 or greater.");
+      return;
+    }
+    const parsedFreeMin = Number(editingZone.freeShippingMinOrder || 0);
+    if (Number.isNaN(parsedFreeMin) || parsedFreeMin < 0) {
+      setZoneModalError("Free shipping minimum order must be 0 or greater.");
+      return;
+    }
+    const cleanDistricts = editingZone.isDefaultFallback
+      ? []
+      : (Array.isArray(editingZone.districts) ? editingZone.districts : []);
+
+    if (!editingZone.isDefaultFallback && cleanDistricts.length === 0) {
+      setZoneModalError("Select at least one district, or mark this zone as Rest of Bangladesh (Fallback).");
+      return;
+    }
+
+    const generatedKey =
+      (editingZone.zoneKey || "").trim() ||
+      cleanName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "") ||
+      `zone_${Date.now()}`;
+
+    const { _index, ...cleanZone } = editingZone;
+    const finalZone = {
+      ...cleanZone,
+      id: cleanZone.id || `zone-${Date.now()}`,
+      name: cleanName,
+      zoneKey: generatedKey,
+      districts: cleanDistricts,
+      cost: Math.round(parsedCost),
+      freeShippingMinOrder: Math.round(parsedFreeMin),
+      estimatedDays: (editingZone.estimatedDays || "").trim(),
+      enabled: editingZone.enabled !== false,
+      isDefaultFallback: Boolean(editingZone.isDefaultFallback),
+    };
+
+    setHasUnsavedChanges(true);
+    setDraft((prev) => {
+      const next = [...(prev.deliveryZones || [])];
+      if (isAddingZone) {
+        if (finalZone.isDefaultFallback) {
+          next.push(finalZone);
+        } else {
+          // Insert specific district zones before fallback zones so priority order is intuitive
+          const fallbackIdx = next.findIndex((z) => z.isDefaultFallback);
+          if (fallbackIdx >= 0) next.splice(fallbackIdx, 0, finalZone);
+          else next.push(finalZone);
+        }
+      } else if (typeof _index === "number" && _index >= 0) {
+        next[_index] = finalZone;
+      }
+      return { ...prev, deliveryZones: next };
+    });
+    setEditingZone(null);
+    setIsAddingZone(false);
+  };
+
+  const handleResetDeliveryZones = () => {
+    setHasUnsavedChanges(true);
+    setDraft((prev) => ({
+      ...prev,
+      deliveryZones: (DEFAULT_THEME_CONFIG.productPage.deliveryZones || []).map((z) => ({
+        ...z,
+        districts: Array.isArray(z.districts) ? [...z.districts] : [],
+      })),
+    }));
+  };
+
   return (
     <div className="space-y-6 pb-12 max-w-6xl mx-auto">
       {/* Top Header Bar */}
@@ -396,7 +568,7 @@ export const AdminProductEditorial = () => {
               )}
             </div>
             <p className="text-xs text-neutral-500 mt-0.5">
-              Customize the 4 feature cards, order section headers, WooCommerce-style checkout form fields, and shared trust badges across all users and devices.
+              Customize the 4 feature cards, order section headers, WooCommerce-style checkout form fields, trust badges, and dynamic delivery cost zones across all users and devices.
             </p>
           </div>
         </div>
@@ -1142,6 +1314,443 @@ export const AdminProductEditorial = () => {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* TAB 5: WOOCOMMERCE-STYLE DELIVERY COST & SHIPPING ZONES */}
+      {activeSubTab === "deliveryCost" && (
+        <div className="space-y-5">
+          <div className="bg-white rounded-3xl border border-neutral-200 p-5 sm:p-6 space-y-5 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-neutral-100">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-extrabold text-neutral-900">
+                    Delivery Cost &amp; Shipping Zones (WooCommerce Style)
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                    Live on Store Checkout &amp; Backend
+                  </span>
+                </div>
+                <p className="text-xs text-neutral-500 mt-1">
+                  Create, edit, prioritize, or delete delivery zones by Bangladesh districts, set flat delivery rates (৳), and configure optional free shipping thresholds. Checked top-to-bottom.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleResetDeliveryZones}
+                  className="px-3.5 py-2 rounded-xl border border-neutral-300 bg-white hover:bg-neutral-50 text-neutral-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset Default Zones</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenAddZone}
+                  className="px-4 py-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Delivery Zone</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Shipping Zones Table */}
+            {(!draft.deliveryZones || draft.deliveryZones.length === 0) ? (
+              <div className="p-8 rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 text-center space-y-2">
+                <Truck className="w-8 h-8 text-neutral-400 mx-auto" />
+                <p className="text-sm font-bold text-neutral-700">No Delivery Zones Configured</p>
+                <p className="text-xs text-neutral-500">
+                  With zero active zones, delivery cost defaults to Free (৳0) at checkout. Click &quot;Add Delivery Zone&quot; to set regional rates.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {draft.deliveryZones.map((zone, idx) => {
+                  const isDisabled = zone.enabled === false;
+                  const distCount = Array.isArray(zone.districts) ? zone.districts.length : 0;
+                  return (
+                    <div
+                      key={zone.id || idx}
+                      className={`p-4 rounded-2xl border transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-4 ${
+                        isDisabled
+                          ? "bg-neutral-50/70 border-neutral-200 opacity-65"
+                          : "bg-white border-neutral-200 hover:border-emerald-300 shadow-2xs"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
+                        <div className="flex flex-col gap-1 shrink-0 pt-0.5">
+                          <button
+                            type="button"
+                            disabled={idx === 0}
+                            onClick={() => handleMoveZone(idx, -1)}
+                            className="p-1 rounded border border-neutral-200 hover:bg-neutral-100 disabled:opacity-30 cursor-pointer"
+                            title="Move Priority Up"
+                          >
+                            <ArrowUp className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={idx === draft.deliveryZones.length - 1}
+                            onClick={() => handleMoveZone(idx, 1)}
+                            className="p-1 rounded border border-neutral-200 hover:bg-neutral-100 disabled:opacity-30 cursor-pointer"
+                            title="Move Priority Down"
+                          >
+                            <ArrowDown className="w-3 h-3" />
+                          </button>
+                        </div>
+
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-extrabold text-neutral-900">
+                              {zone.name}
+                            </span>
+                            {zone.isDefaultFallback ? (
+                              <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-[10px] font-bold">
+                                Rest of Bangladesh (Fallback)
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700 border border-neutral-200 text-[10px] font-bold">
+                                {distCount} {distCount === 1 ? "District" : "Districts"}
+                              </span>
+                            )}
+                            {zone.estimatedDays && (
+                              <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold">
+                                ETA: {zone.estimatedDays}
+                              </span>
+                            )}
+                            {isDisabled && (
+                              <span className="px-2 py-0.5 rounded-full bg-neutral-200 text-neutral-600 text-[10px] font-bold">
+                                Disabled
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-xs text-neutral-500 break-words">
+                            {zone.isDefaultFallback
+                              ? "Applies automatically to any district not matched by higher-priority zones above."
+                              : distCount > 0
+                                ? zone.districts.join(", ")
+                                : "No districts assigned"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3 shrink-0 justify-between lg:justify-end border-t lg:border-t-0 pt-3 lg:pt-0 border-neutral-100">
+                        <div className="flex items-center gap-3">
+                          <div className="px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-right">
+                            <span className="block text-[9px] font-bold uppercase text-emerald-700">
+                              Flat Rate
+                            </span>
+                            <span className="text-sm font-black text-emerald-900">
+                              {Number(zone.cost) === 0 ? "Free (৳0)" : `৳${Number(zone.cost || 0)}`}
+                            </span>
+                          </div>
+                          {Number(zone.freeShippingMinOrder || 0) > 0 && (
+                            <div className="px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-right">
+                              <span className="block text-[9px] font-bold uppercase text-blue-700">
+                                Free Over
+                              </span>
+                              <span className="text-xs font-extrabold text-blue-900">
+                                ৳{Number(zone.freeShippingMinOrder).toLocaleString()}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleZoneEnabled(idx)}
+                            className={`p-2 rounded-xl border cursor-pointer ${
+                              !isDisabled
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : "border-neutral-200 bg-neutral-100 text-neutral-500"
+                            }`}
+                            title={isDisabled ? "Enable Zone" : "Disable Zone"}
+                          >
+                            {!isDisabled ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditZone(zone, idx)}
+                            className="px-3 py-2 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-700 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteZone(idx)}
+                            className="p-2 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 cursor-pointer"
+                            title="Delete Zone"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Live Calculator Preview */}
+            <div className="p-4 rounded-2xl bg-neutral-50 border border-neutral-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <p className="text-xs font-extrabold text-neutral-900 flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Live Delivery Rate Simulator</span>
+                </p>
+                <p className="text-[11px] text-neutral-500 mt-0.5">
+                  Test how your current draft zones calculate delivery charges before publishing live.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2.5 text-xs">
+                <select
+                  value={previewDistrict}
+                  onChange={(e) => setPreviewDistrict(e.target.value)}
+                  className="px-3 py-2 rounded-xl border border-neutral-300 bg-white font-semibold"
+                >
+                  {BANGLADESH_DISTRICTS.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+                <div className="flex items-center gap-1 bg-white border border-neutral-300 rounded-xl px-2.5 py-1.5">
+                  <span className="text-neutral-500 font-semibold">Subtotal ৳</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={previewSubtotal}
+                    onChange={(e) => setPreviewSubtotal(Number(e.target.value) || 0)}
+                    className="w-20 font-bold text-neutral-900 focus:outline-none"
+                  />
+                </div>
+                {(() => {
+                  const sim = resolveDeliveryCost(previewDistrict, previewSubtotal, draft);
+                  return (
+                    <div className="px-3.5 py-2 rounded-xl bg-neutral-900 text-white font-extrabold flex items-center gap-2">
+                      <span>{sim.zoneName}:</span>
+                      <span className="text-emerald-400">
+                        {sim.isFreeShipping ? "FREE (৳0)" : `৳${sim.fee}`}
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: WOOCOMMERCE-STYLE DELIVERY ZONE EDITOR (ADD / EDIT) */}
+      {editingZone && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-neutral-200 overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-4 bg-neutral-900 text-white flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-extrabold">
+                  {isAddingZone ? "Add Delivery Shipping Zone" : `Edit Zone: ${editingZone.name}`}
+                </h3>
+                <p className="text-[11px] text-neutral-400">
+                  Assign Bangladesh districts, flat delivery rate (৳), and optional free shipping threshold.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingZone(null)}
+                className="p-1.5 rounded-full hover:bg-neutral-800 text-neutral-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveZoneModal} className="p-6 space-y-4 text-xs max-h-[78vh] overflow-y-auto">
+              {zoneModalError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 font-bold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{zoneModalError}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-neutral-700 mb-1">Zone Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingZone.name ?? ""}
+                    onChange={(e) => setEditingZone((prev) => ({ ...prev, name: e.target.value }))}
+                    placeholder="e.g. Dhaka Metro / Sub-Dhaka / Outside Dhaka"
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-neutral-700 mb-1">Delivery Cost (৳ BDT) *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    required
+                    value={editingZone.cost ?? 0}
+                    onChange={(e) => setEditingZone((prev) => ({ ...prev, cost: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-neutral-700 mb-1">
+                    Free Shipping Min Order (৳, Optional)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editingZone.freeShippingMinOrder ?? 0}
+                    onChange={(e) =>
+                      setEditingZone((prev) => ({ ...prev, freeShippingMinOrder: e.target.value }))
+                    }
+                    placeholder="0 = disabled (e.g. 2000 for free over ৳2000)"
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-neutral-700 mb-1">Estimated Delivery Days</label>
+                  <input
+                    type="text"
+                    value={editingZone.estimatedDays ?? ""}
+                    onChange={(e) =>
+                      setEditingZone((prev) => ({ ...prev, estimatedDays: e.target.value }))
+                    }
+                    placeholder="e.g. 1-2 Days"
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 focus:border-emerald-600 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-2xl border border-neutral-200 bg-neutral-50 space-y-2.5">
+                <label className="inline-flex items-center gap-2 font-bold text-neutral-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(editingZone.isDefaultFallback)}
+                    onChange={(e) =>
+                      setEditingZone((prev) => ({ ...prev, isDefaultFallback: e.target.checked }))
+                    }
+                    className="w-4 h-4 accent-indigo-600"
+                  />
+                  <span>Rest of Bangladesh / Catch-All Fallback Zone (Matches all uncovered districts)</span>
+                </label>
+
+                {!editingZone.isDefaultFallback && (
+                  <div className="space-y-2.5 pt-2 border-t border-neutral-200">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-bold text-neutral-700">
+                        Select Districts ({(editingZone.districts || []).length} selected)
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingZone((prev) => ({
+                              ...prev,
+                              districts: ["Gazipur", "Narayanganj", "Munshiganj", "Manikganj", "Narsingdi"],
+                            }))
+                          }
+                          className="px-2 py-1 rounded-lg bg-white border border-neutral-300 hover:bg-neutral-100 text-[10px] font-bold cursor-pointer"
+                        >
+                          Sub-Dhaka 5
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingZone((prev) => ({
+                              ...prev,
+                              districts: [...BANGLADESH_DISTRICTS],
+                            }))
+                          }
+                          className="px-2 py-1 rounded-lg bg-white border border-neutral-300 hover:bg-neutral-100 text-[10px] font-bold cursor-pointer"
+                        >
+                          Select All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingZone((prev) => ({ ...prev, districts: [] }))}
+                          className="px-2 py-1 rounded-lg bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 text-[10px] font-bold cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={zoneDistrictSearch}
+                        onChange={(e) => setZoneDistrictSearch(e.target.value)}
+                        placeholder="Search district (e.g. Dhaka, Chittagong, Sylhet)..."
+                        className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-neutral-300 bg-white focus:border-emerald-600 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 max-h-44 overflow-y-auto p-1">
+                      {BANGLADESH_DISTRICTS.filter((d) =>
+                        d.toLowerCase().includes(zoneDistrictSearch.trim().toLowerCase())
+                      ).map((dist) => {
+                        const checked = (editingZone.districts || []).includes(dist);
+                        return (
+                          <label
+                            key={dist}
+                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold cursor-pointer transition-colors ${
+                              checked
+                                ? "bg-emerald-50 border-emerald-400 text-emerald-900"
+                                : "bg-white border-neutral-200 text-neutral-700 hover:bg-neutral-50"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => handleToggleZoneDistrict(dist)}
+                              className="w-3.5 h-3.5 accent-emerald-600 shrink-0"
+                            />
+                            <span className="truncate">{dist}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <label className="inline-flex items-center gap-2 font-bold text-neutral-800 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={editingZone.enabled !== false}
+                  onChange={(e) =>
+                    setEditingZone((prev) => ({ ...prev, enabled: e.target.checked }))
+                  }
+                  className="w-4 h-4 accent-emerald-600"
+                />
+                <span>Enable this delivery zone immediately</span>
+              </label>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-neutral-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingZone(null)}
+                  className="px-4 py-2 rounded-xl border border-neutral-300 text-neutral-700 font-bold hover:bg-neutral-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold cursor-pointer"
+                >
+                  {isAddingZone ? "Add Zone" : "Apply Zone Changes"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
