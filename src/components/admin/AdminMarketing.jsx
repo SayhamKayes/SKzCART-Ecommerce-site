@@ -42,7 +42,7 @@ import {
 } from "lucide-react";
 import MetaConnectionBar from "./MetaConnectionBar";
 import MetaBoostWizardDrawer from "./MetaBoostWizardDrawer";
-import { apiClient } from "../../services/api";
+import { apiClient, API_BASE_URL } from "../../services/api";
 import { marketingTracker } from "../../services/marketing";
 import { realtimeService } from "../../services/realtime";
 import { formatBDT } from "../../utils/bangladesh";
@@ -927,8 +927,9 @@ const AdminMarketing = ({
 
   // Copy Facebook Catalog XML Feed URL
   const handleCopyCatalogXml = () => {
-    const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://amardokan.com";
-    const xmlUrl = `${baseUrl}/api/v1/marketing/facebook-catalog.xml`;
+    const fallbackOrigin = typeof window !== "undefined" ? window.location.origin : "https://amardokan.com";
+    const apiBase = API_BASE_URL || fallbackOrigin;
+    const xmlUrl = `${apiBase}/api/v1/marketing/facebook-catalog.xml`;
     if (navigator?.clipboard?.writeText) {
       navigator.clipboard.writeText(xmlUrl);
       setCopiedCatalogXml(true);
