@@ -819,6 +819,54 @@ export const apiClient = {
     }
   },
 
+  async getUtmCampaigns() {
+    try {
+      const res = await fetch('/api/v1/marketing/utm-campaigns');
+      const data = await res.json();
+      return Array.isArray(data.campaigns) ? data.campaigns : [];
+    } catch (err) {
+      console.warn('getUtmCampaigns error:', err);
+      return [];
+    }
+  },
+
+  async createUtmCampaign(payload) {
+    try {
+      const res = await fetch('/api/v1/marketing/utm-campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async updateUtmCampaign(id, patch) {
+    try {
+      const res = await fetch(`/api/v1/marketing/utm-campaigns/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async deleteUtmCampaign(id) {
+    try {
+      const res = await fetch(`/api/v1/marketing/utm-campaigns/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
   // ==========================================
   // SAAS MULTI-TENANT META ADS & BOOST API
   // ==========================================
