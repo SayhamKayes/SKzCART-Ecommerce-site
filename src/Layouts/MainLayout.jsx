@@ -46,7 +46,7 @@ export const MainLayout = ({
   return (
     <div
       style={frontendBgStyle}
-      className={`min-h-screen bg-neutral-100 flex flex-col font-sans text-neutral-900 selection:bg-emerald-500 selection:text-white ${
+      className={`min-h-screen bg-neutral-100 flex flex-col font-sans text-neutral-900 selection:bg-emerald-500 selection:text-white print:min-h-0 print:bg-white print:block ${
         isFrontendPage ? 'amardokan-storefront-root' : ''
       }`}
     >
