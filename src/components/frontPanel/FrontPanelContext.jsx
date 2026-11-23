@@ -145,6 +145,7 @@ export const FrontPanelProvider = ({ children }) => {
         const extraProductPage = (backendSettings.extraConfig && backendSettings.extraConfig.productPage) || {};
         const extraStorePage = (backendSettings.extraConfig && backendSettings.extraConfig.storePage) || {};
         const extraMarketingCampaigns = (backendSettings.extraConfig && backendSettings.extraConfig.marketingCampaigns) || {};
+        const extraInvoiceConfig = (backendSettings.extraConfig && backendSettings.extraConfig.invoiceConfig) || {};
         const extraThemesColors = (backendSettings.extraConfig && backendSettings.extraConfig.themesColors) || {};
 
         const mergedHeader = {
@@ -177,6 +178,11 @@ export const FrontPanelProvider = ({ children }) => {
           ...(extraMarketingCampaigns || {}),
         };
 
+        const mergedInvoiceConfig = {
+          ...(prev.invoiceConfig || DEFAULT_THEME_CONFIG.invoiceConfig),
+          ...(extraInvoiceConfig || {}),
+        };
+
         const mergedThemesColors = deepMerge(
           DEFAULT_THEME_CONFIG.themesColors,
           extraThemesColors
@@ -191,6 +197,7 @@ export const FrontPanelProvider = ({ children }) => {
           productPage: mergedProductPage,
           storePage: mergedStorePage,
           marketingCampaigns: mergedMarketingCampaigns,
+          invoiceConfig: mergedInvoiceConfig,
           themesColors: mergedThemesColors,
         };
         const sanitized = sanitizeThemeConfig(updated, DEFAULT_THEME_CONFIG);
@@ -354,6 +361,7 @@ export const FrontPanelProvider = ({ children }) => {
         productPage: sanitized.productPage,
         storePage: sanitized.storePage,
         marketingCampaigns: sanitized.marketingCampaigns,
+        invoiceConfig: sanitized.invoiceConfig,
         themesColors: sanitized.themesColors,
         idPrefixes: sanitized.shop?.idPrefixes || {},
         footer: {
