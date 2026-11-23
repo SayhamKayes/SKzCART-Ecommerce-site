@@ -11,6 +11,7 @@ const TAB_TITLES = {
   media: 'Media Library',
   reviews: 'Customer Reviews & Feedback',
   orders: 'Order Management',
+  invoiceGenerator: 'Invoice Generator & Templates',
   products: 'Products & Inventory',
   analytics: 'Analytics & Performance',
   leads: 'Lead Generation & CRM',
@@ -62,42 +63,52 @@ export const AdminLayout = ({
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-neutral-100 font-sans relative">
+    <div className="flex h-screen overflow-hidden bg-neutral-100 font-sans relative print:h-auto print:overflow-visible print:bg-white">
       {/* Mobile Drawer Backdrop Overlay */}
       {isMobileOpen && (
         <div
           onClick={() => setIsMobileOpen(false)}
-          className="fixed inset-0 bg-black/60 z-40 backdrop-blur-xs md:hidden animate-in fade-in duration-200"
+          className="fixed inset-0 bg-black/60 z-40 backdrop-blur-xs md:hidden animate-in fade-in duration-200 print:hidden"
         />
       )}
 
       {/* Admin Sidebar (Collapsible on Desktop, Off-canvas Drawer on Mobile) */}
-      <AdminSidebar
-        currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
-        currentRole={currentRole}
-        setCurrentRole={setCurrentRole}
-        onExitToStore={onExitToStore}
-        onOpenRiderPortal={onOpenRiderPortal}
-        onOpenFrontPanel={onOpenFrontPanel}
-        onLogout={onLogout}
-        pendingOrdersCount={pendingOrdersCount}
-        isCollapsed={isCollapsed}
-        setIsCollapsed={handleToggleCollapse}
-        isMobileOpen={isMobileOpen}
-        setIsMobileOpen={setIsMobileOpen}
-      />
-
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Admin Top Header Component */}
-        <Admin_Header
+      <div className="print:hidden flex">
+        <AdminSidebar
           currentTab={currentTab}
-          titles={titles}
+          setCurrentTab={setCurrentTab}
           currentRole={currentRole}
-          onToggleMobileMenu={() => setIsMobileOpen((prev) => !prev)}
+          setCurrentRole={setCurrentRole}
+          onExitToStore={onExitToStore}
+          onOpenRiderPortal={onOpenRiderPortal}
+          onOpenFrontPanel={onOpenFrontPanel}
+          onLogout={onLogout}
+          pendingOrdersCount={pendingOrdersCount}
+          isCollapsed={isCollapsed}
+          setIsCollapsed={handleToggleCollapse}
+          isMobileOpen={isMobileOpen}
+          setIsMobileOpen={setIsMobileOpen}
         />
+      </div>
 
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden print:overflow-visible">
+        {/* Admin Top Header Component */}
+        <div className="print:hidden">
+          <Admin_Header
+            currentTab={currentTab}
+            titles={titles}
+            currentRole={currentRole}
+            onToggleMobileMenu={() => setIsMobileOpen((prev) => !prev)}
+          />
+        </div>
+
+        <main
+          className={
+            currentTab === 'invoiceGenerator'
+              ? 'flex-1 overflow-hidden p-3 sm:p-4 flex flex-col min-h-0 print:overflow-visible print:p-0'
+              : 'flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 print:overflow-visible print:p-0'
+          }
+        >
           {children}
         </main>
       </div>
