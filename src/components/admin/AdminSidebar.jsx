@@ -27,7 +27,8 @@ import {
   Briefcase,
   ShieldCheck,
   TrendingUp,
-  UserCheck
+  UserCheck,
+  Receipt
 } from "lucide-react";
 import { useThemeConfig } from "../frontPanel/FrontPanelContext";
 
@@ -35,6 +36,7 @@ export const ROLE_PERMISSIONS = {
   ADMIN: [
     "overview",
     "orders",
+    "invoiceGenerator",
     "analytics",
     "leads",
     "shopDetails",
@@ -57,6 +59,7 @@ export const ROLE_PERMISSIONS = {
   MANAGER: [
     "overview",
     "orders",
+    "invoiceGenerator",
     "analytics",
     "leads",
     "reviews",
@@ -124,6 +127,12 @@ const AdminSidebar = ({
       id: "analytics",
       label: "Analytics",
       icon: TrendingUp
+    },
+    {
+      type: "item",
+      id: "invoiceGenerator",
+      label: "Invoice Generator",
+      icon: Receipt
     },
     {
       type: "group",
