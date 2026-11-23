@@ -739,79 +739,81 @@ export default function App() {
   const pendingOrdersCount = orders.filter((o) => o.status === 'PENDING').length;
 
   return (
-    <MainLayout
-      cartItems={cartItems}
-      onOpenCart={() => setIsCartOpen(true)}
-      activeView={currentView}
-      setActiveView={navigateToView}
-      searchQuery={searchQuery}
-      setSearchQuery={setSearchQuery}
-      selectedCategory={selectedCategory}
-      setSelectedCategory={setSelectedCategory}
-      categories={categories}
-      currentUser={currentUser}
-      isCartOpen={isCartOpen}
-      onOpenAuthModal={() => setIsAuthModalOpen(true)}
-      onLogoutUser={handleLogoutUser}
-    >
-      <AppRouter
-        currentView={currentView}
-        setCurrentView={setCurrentView}
-        navigateToView={navigateToView}
-        cartItems={cartItems}
-        onOpenCart={() => setIsCartOpen(true)}
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
-        isLoadingProducts={isLoadingProducts}
-        isAdminAuthenticated={isAdminAuthenticated}
-        setIsAdminAuthenticated={setIsAdminAuthenticated}
-        adminTab={adminTab}
-        setAdminTab={setAdminTab}
-        adminRole={adminRole}
-        setAdminRole={setAdminRole}
-        pendingOrdersCount={pendingOrdersCount}
-        products={products}
-        orders={orders}
-        coupons={coupons}
-        landingPages={landingPages}
-        auditLogs={auditLogs}
-        refreshData={refreshData}
-        filteredProducts={filteredProducts}
-        categories={categories}
-        selectedCategory={selectedCategory}
-        setSelectedCategory={setSelectedCategory}
-        handleAddToCart={handleAddToCart}
-        handleQuickBuy={handleQuickBuy}
-        setSelectedProduct={(product) => {
-          if (product?.id) {
-            marketingTracker.track(
-              'ProductClick',
-              {
-                productId: product.id,
-                name: product.name,
-                value: product.price,
-                source: 'storefront_card',
-              },
-              { productId: product.id }
-            );
-          }
-          setSelectedProduct(product);
-        }}
-        handleOrderSuccess={handleOrderSuccess}
-        initialTrackData={initialTrackData}
-        currentUser={currentUser}
-        handleLogoutUser={handleLogoutUser}
-        setIsAuthModalOpen={setIsAuthModalOpen}
-        setInvoiceOrder={setInvoiceOrder}
-        setCourierAssignOrder={setCourierAssignOrder}
-        setAdminSelectedOrder={setAdminSelectedOrder}
-        handleUpdateStock={handleUpdateStock}
-        handleBulkUpdateStock={handleBulkUpdateStock}
-        handleAddNewProduct={handleAddNewProduct}
-        handleUpdateProduct={handleUpdateProduct}
-        handleDeleteProduct={handleDeleteProduct}
-        handleReorderProducts={handleReorderProducts}
-      />
+    <>
+      <div className={invoiceOrder ? "print:hidden" : ""}>
+        <MainLayout
+          cartItems={cartItems}
+          onOpenCart={() => setIsCartOpen(true)}
+          activeView={currentView}
+          setActiveView={navigateToView}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          selectedCategory={selectedCategory}
+          setSelectedCategory={setSelectedCategory}
+          categories={categories}
+          currentUser={currentUser}
+          isCartOpen={isCartOpen}
+          onOpenAuthModal={() => setIsAuthModalOpen(true)}
+          onLogoutUser={handleLogoutUser}
+        >
+          <AppRouter
+            currentView={currentView}
+            setCurrentView={setCurrentView}
+            navigateToView={navigateToView}
+            cartItems={cartItems}
+            onOpenCart={() => setIsCartOpen(true)}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            isLoadingProducts={isLoadingProducts}
+            isAdminAuthenticated={isAdminAuthenticated}
+            setIsAdminAuthenticated={setIsAdminAuthenticated}
+            adminTab={adminTab}
+            setAdminTab={setAdminTab}
+            adminRole={adminRole}
+            setAdminRole={setAdminRole}
+            pendingOrdersCount={pendingOrdersCount}
+            products={products}
+            orders={orders}
+            coupons={coupons}
+            landingPages={landingPages}
+            auditLogs={auditLogs}
+            refreshData={refreshData}
+            filteredProducts={filteredProducts}
+            categories={categories}
+            selectedCategory={selectedCategory}
+            setSelectedCategory={setSelectedCategory}
+            handleAddToCart={handleAddToCart}
+            handleQuickBuy={handleQuickBuy}
+            setSelectedProduct={(product) => {
+              if (product?.id) {
+                marketingTracker.track(
+                  'ProductClick',
+                  {
+                    productId: product.id,
+                    name: product.name,
+                    value: product.price,
+                    source: 'storefront_card',
+                  },
+                  { productId: product.id }
+                );
+              }
+              setSelectedProduct(product);
+            }}
+            handleOrderSuccess={handleOrderSuccess}
+            initialTrackData={initialTrackData}
+            currentUser={currentUser}
+            handleLogoutUser={handleLogoutUser}
+            setIsAuthModalOpen={setIsAuthModalOpen}
+            setInvoiceOrder={setInvoiceOrder}
+            setCourierAssignOrder={setCourierAssignOrder}
+            setAdminSelectedOrder={setAdminSelectedOrder}
+            handleUpdateStock={handleUpdateStock}
+            handleBulkUpdateStock={handleBulkUpdateStock}
+            handleAddNewProduct={handleAddNewProduct}
+            handleUpdateProduct={handleUpdateProduct}
+            handleDeleteProduct={handleDeleteProduct}
+            handleReorderProducts={handleReorderProducts}
+          />
 
       {/* Global Modals */}
       {selectedProduct && (
@@ -864,8 +866,6 @@ export default function App() {
         onLoginSuccess={handleLoginSuccess}
       />
 
-      <InvoiceModal order={invoiceOrder} onClose={() => setInvoiceOrder(null)} />
-
       <AssignCourierModal
         order={courierAssignOrder}
         onClose={() => setCourierAssignOrder(null)}
@@ -895,6 +895,11 @@ export default function App() {
         confirmText="OK"
         onClose={() => setPaymentAlertModal(null)}
       />
-    </MainLayout>
+        </MainLayout>
+      </div>
+
+      {/* Rendered outside MainLayout so printing InvoiceModal hides the background page cleanly */}
+      <InvoiceModal order={invoiceOrder} orders={orders} onClose={() => setInvoiceOrder(null)} />
+    </>
   );
 }
