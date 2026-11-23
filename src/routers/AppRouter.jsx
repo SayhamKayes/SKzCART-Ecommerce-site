@@ -36,6 +36,7 @@ const AdminRecycleBin = lazy(() => import('../components/admin/AdminRecycleBin')
 const AdminProductEditorial = lazy(() => import('../components/admin/AdminProductEditorial').then(m => ({ default: m.AdminProductEditorial || m.default })));
 const AdminAnalytics = lazy(() => import('../components/admin/AdminAnalytics').then(m => ({ default: m.AdminAnalytics || m.default })));
 const AdminLeads = lazy(() => import('../components/admin/AdminLeads').then(m => ({ default: m.AdminLeads || m.default })));
+const AdminInvoiceGenerator = lazy(() => import('../components/admin/AdminInvoiceGenerator').then(m => ({ default: m.AdminInvoiceGenerator || m.default })));
 
 const RouteLoadingSpinner = () => (
   <div className="min-h-[60vh] flex flex-col items-center justify-center p-8 text-center">
@@ -531,6 +532,9 @@ export const AppRouter = ({
             </AdminTabErrorBoundary>
           )}
           {adminTab === 'analytics' && <AdminAnalytics orders={orders} products={products} />}
+          {adminTab === 'invoiceGenerator' && (
+            <AdminInvoiceGenerator orders={orders} products={products} />
+          )}
           {adminTab === 'leads' && <AdminLeads orders={orders} />}
           {adminTab === 'notifications' && <AdminNotifications orders={orders} />}
           {adminTab === 'blueprint' && <AdminBlueprint />}
