@@ -11,11 +11,23 @@ import {
   AlertTriangle,
   RefreshCw,
   CheckCircle2,
-  Activity
+  Activity,
+  Maximize2,
+  X,
+  Calendar,
+  BarChart3
 } from "lucide-react";
 import { formatBDT } from "../../utils/bangladesh";
 import { apiClient } from "../../services/api";
 import { realtimeService } from "../../services/realtime";
+import {
+  TIMEFRAME_OPTIONS,
+  extractLocalISODate,
+  getDefaultCustomRange,
+  resolveAnalyticsBounds,
+  isWithinISORange,
+  buildAnalyticsSeries,
+} from "../../utils/analyticsRange";
 
 const createSmoothPath = (pts) => {
   if (!pts || pts.length === 0) return "";
@@ -30,6 +42,70 @@ const createSmoothPath = (pts) => {
   return path;
 };
 
+const TimeframeControls = ({
+  timeframeKey,
+  onSelectTimeframe,
+  customRange,
+  onChangeCustomRange,
+  onRefresh,
+  isRefreshing = false,
+}) => (
+  <div className="flex flex-col items-start lg:items-end gap-2">
+    <div className="flex flex-wrap items-center gap-1.5">
+      {TIMEFRAME_OPTIONS.map((opt) => (
+        <button
+          key={opt.key}
+          type="button"
+          onClick={() => onSelectTimeframe(opt.key)}
+          className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-1.5 ${
+            timeframeKey === opt.key
+              ? "bg-neutral-900 text-white shadow-xs"
+              : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+          }`}
+        >
+          {opt.key === "custom" && <Calendar className="w-3.5 h-3.5" />}
+          <span>{opt.label}</span>
+        </button>
+      ))}
+      {onRefresh && (
+        <button
+          type="button"
+          onClick={onRefresh}
+          className="p-2 rounded-xl border border-neutral-200 hover:bg-neutral-50 text-neutral-600 cursor-pointer"
+          title="Refresh live telemetry"
+        >
+          <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
+        </button>
+      )}
+    </div>
+
+    {timeframeKey === "custom" && (
+      <div className="flex flex-wrap items-center gap-2 bg-neutral-50 border border-neutral-200 rounded-2xl px-3 py-1.5">
+        <span className="text-[11px] font-bold text-neutral-500">{"From:"}</span>
+        <input
+          type="date"
+          value={customRange.start}
+          max={customRange.end || undefined}
+          onChange={(e) =>
+            onChangeCustomRange((prev) => ({ ...prev, start: e.target.value }))
+          }
+          className="bg-white border border-neutral-200 rounded-lg px-2 py-1 text-xs font-bold text-neutral-800 focus:outline-none focus:border-emerald-500"
+        />
+        <span className="text-[11px] font-bold text-neutral-500">{"To:"}</span>
+        <input
+          type="date"
+          value={customRange.end}
+          min={customRange.start || undefined}
+          onChange={(e) =>
+            onChangeCustomRange((prev) => ({ ...prev, end: e.target.value }))
+          }
+          className="bg-white border border-neutral-200 rounded-lg px-2 py-1 text-xs font-bold text-neutral-800 focus:outline-none focus:border-emerald-500"
+        />
+      </div>
+    )}
+  </div>
+);
+
 const AnalyticsTrendChart = ({
   title,
   subtitle,
@@ -42,18 +118,23 @@ const AnalyticsTrendChart = ({
   secondaryLabel = "Secondary",
   formatVal = (v) => String(v),
   gradId = "trendGrad",
+  onExpand = null,
+  isExpanded = false,
 }) => {
   const [hoveredIdx, setHoveredIdx] = useState(null);
-  const width = 460;
-  const height = 190;
-  const padX = 28;
-  const padTop = 22;
-  const padBottom = 28;
-  const usableW = width - padX * 2;
+  const width = isExpanded ? 780 : 480;
+  const height = isExpanded ? 310 : 210;
+  const padLeft = isExpanded ? 66 : 30;
+  const padRight = 24;
+  const padTop = 24;
+  const padBottom = 32;
+  const usableW = width - padLeft - padRight;
   const usableH = height - padTop - padBottom;
 
   const maxVal = Math.max(
-    ...data.map((d) => Math.max(Number(d[valueKey] || 0), Number(secondaryKey ? d[secondaryKey] || 0 : 0))),
+    ...data.map((d) =>
+      Math.max(Number(d[valueKey] || 0), Number(secondaryKey ? d[secondaryKey] || 0 : 0))
+    ),
     1
   );
 
@@ -61,7 +142,10 @@ const AnalyticsTrendChart = ({
     data.map((d, i) => ({
       ...d,
       val: Number(d[key] || 0),
-      x: padX + (i / Math.max(data.length - 1, 1)) * usableW,
+      x:
+        data.length === 1
+          ? padLeft + usableW / 2
+          : padLeft + (i / Math.max(data.length - 1, 1)) * usableW,
       y: height - padBottom - (Number(d[key] || 0) / maxVal) * usableH,
     }));
 
@@ -74,12 +158,21 @@ const AnalyticsTrendChart = ({
       : "";
   const secondaryPath = secondaryKey ? createSmoothPath(secondaryPts) : "";
 
+  const maxLabels = isExpanded ? 14 : 7;
+  const labelStride = Math.max(1, Math.ceil(data.length / maxLabels));
+
   return (
-    <div className="bg-white rounded-3xl p-5 border border-neutral-200 shadow-xs space-y-3">
+    <div
+      className={
+        isExpanded
+          ? "space-y-4"
+          : "bg-white rounded-3xl p-5 border border-neutral-200 shadow-xs flex flex-col justify-between h-full gap-3"
+      }
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="text-sm font-black text-neutral-900">{title}</h3>
-          <p className="text-[11px] text-neutral-500">{subtitle}</p>
+          {!isExpanded && <h3 className="text-sm font-black text-neutral-900">{title}</h3>}
+          {!isExpanded && <p className="text-[11px] text-neutral-500">{subtitle}</p>}
         </div>
         <div className="flex items-center gap-3 text-[11px] font-bold">
           <span className="flex items-center gap-1.5 text-neutral-700">
@@ -92,12 +185,23 @@ const AnalyticsTrendChart = ({
               {secondaryLabel}
             </span>
           )}
+          {onExpand && (
+            <button
+              type="button"
+              onClick={onExpand}
+              className="p-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-100 text-neutral-600 cursor-pointer transition-colors"
+              title="Open large view"
+              aria-label={`Expand ${title}`}
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto overflow-visible select-none">
         <defs>
-          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id={`${gradId}-${isExpanded ? "lg" : "sm"}`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity="0.28" />
             <stop offset="100%" stopColor={color} stopOpacity="0.0" />
           </linearGradient>
@@ -105,23 +209,37 @@ const AnalyticsTrendChart = ({
 
         {[0, 0.5, 1].map((ratio, idx) => {
           const y = height - padBottom - usableH * ratio;
+          const tickVal = Math.round(maxVal * ratio);
           return (
-            <line
-              key={idx}
-              x1={padX}
-              y1={y}
-              x2={width - padX}
-              y2={y}
-              stroke="#E5E7EB"
-              strokeDasharray="3 3"
-              strokeWidth="1"
-            />
+            <g key={idx}>
+              <line
+                x1={padLeft}
+                y1={y}
+                x2={width - padRight}
+                y2={y}
+                stroke="#E5E7EB"
+                strokeDasharray="3 3"
+                strokeWidth="1"
+              />
+              {isExpanded && (
+                <text
+                  x={padLeft - 8}
+                  y={y + 3}
+                  textAnchor="end"
+                  fontSize="10"
+                  fill="#64748B"
+                  fontWeight="700"
+                >
+                  {formatVal(tickVal)}
+                </text>
+              )}
+            </g>
           );
         })}
 
-        {areaPath && <path d={areaPath} fill={`url(#${gradId})`} />}
+        {areaPath && <path d={areaPath} fill={`url(#${gradId}-${isExpanded ? "lg" : "sm"})`} />}
         {linePath && (
-          <path d={linePath} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" />
+          <path d={linePath} fill="none" stroke={color} strokeWidth={isExpanded ? "3" : "2.5"} strokeLinecap="round" />
         )}
         {secondaryPath && (
           <path
@@ -137,9 +255,11 @@ const AnalyticsTrendChart = ({
         {primaryPts.map((pt, idx) => {
           const secPt = secondaryPts[idx];
           const isHovered = hoveredIdx === idx;
+          const showLabel =
+            data.length <= maxLabels || idx % labelStride === 0 || idx === data.length - 1;
           return (
             <g
-              key={pt.date || idx}
+              key={pt.key || pt.date || idx}
               onMouseEnter={() => setHoveredIdx(idx)}
               onMouseLeave={() => setHoveredIdx(null)}
               className="cursor-pointer"
@@ -147,7 +267,7 @@ const AnalyticsTrendChart = ({
               <circle
                 cx={pt.x}
                 cy={pt.y}
-                r={isHovered ? 5 : 3.2}
+                r={isHovered ? 5.5 : data.length > 20 ? 2.6 : 3.4}
                 fill="#fff"
                 stroke={color}
                 strokeWidth="2.2"
@@ -162,12 +282,12 @@ const AnalyticsTrendChart = ({
                   strokeWidth="2"
                 />
               )}
-              {(data.length <= 10 || idx % Math.ceil(data.length / 7) === 0 || idx === data.length - 1) && (
+              {showLabel && (
                 <text
                   x={pt.x}
                   y={height - 8}
                   textAnchor="middle"
-                  fontSize="9.5"
+                  fontSize={isExpanded ? "10.5" : "9.5"}
                   fill="#64748B"
                   fontWeight="600"
                 >
@@ -175,13 +295,18 @@ const AnalyticsTrendChart = ({
                 </text>
               )}
               {isHovered && (
-                <g transform={`translate(${Math.min(Math.max(pt.x - 52, 6), width - 116)}, ${Math.max(pt.y - 44, 4)})`}>
-                  <rect width="110" height={secPt ? "38" : "24"} rx="8" fill="#0F172A" />
-                  <text x="8" y="15" fontSize="9.5" fill="#fff" fontWeight="700">
-                    {`${pt.label}: ${formatVal(pt.val)}`}
+                <g
+                  transform={`translate(${Math.min(
+                    Math.max(pt.x - 68, 6),
+                    width - 144
+                  )}, ${Math.max(pt.y - 48, 4)})`}
+                >
+                  <rect width="138" height={secPt ? "40" : "26"} rx="8" fill="#0F172A" />
+                  <text x="8" y="16" fontSize="10" fill="#fff" fontWeight="700">
+                    {`${pt.fullLabel || pt.label}: ${formatVal(pt.val)}`}
                   </text>
                   {secPt && (
-                    <text x="8" y="30" fontSize="9" fill="#FCD34D" fontWeight="700">
+                    <text x="8" y="32" fontSize="9.5" fill="#FCD34D" fontWeight="700">
                       {`${secondaryLabel}: ${secPt.val}`}
                     </text>
                   )}
@@ -195,8 +320,210 @@ const AnalyticsTrendChart = ({
   );
 };
 
+const OrdersVerticalBarChart = ({
+  title,
+  subtitle,
+  data = [],
+  onExpand = null,
+  isExpanded = false,
+}) => {
+  const [hoveredIdx, setHoveredIdx] = useState(null);
+
+  const count = Math.max(data.length, 1);
+  const svgWidth = isExpanded ? 780 : 480;
+  const svgHeight = isExpanded ? 310 : 210;
+  const padLeft = isExpanded ? 42 : 28;
+  const padRight = 12;
+  const padTop = 18;
+  const padBottom = 20;
+  const usableW = svgWidth - padLeft - padRight;
+  const usableH = svgHeight - padTop - padBottom;
+
+  const maxVal = Math.max(
+    ...data.map((d) => Math.max(Number(d.orders || 0), Number(d.pending || 0))),
+    1
+  );
+
+  const slotW = usableW / count;
+  const pairWidth = Math.min(34, Math.max(6, slotW * 0.72));
+  const barGap = count > 20 && !isExpanded ? 1 : 2;
+  const barW = Math.max(2.5, (pairWidth - barGap) / 2);
+
+  const maxLabels = isExpanded ? 15 : 8;
+  const labelStride = Math.max(1, Math.ceil(count / maxLabels));
+
+  return (
+    <div
+      className={
+        isExpanded
+          ? "space-y-4"
+          : "bg-white rounded-3xl p-5 border border-neutral-200 shadow-xs flex flex-col justify-between h-full gap-3"
+      }
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          {!isExpanded && <h3 className="text-sm font-black text-neutral-900">{title}</h3>}
+          {!isExpanded && <p className="text-[11px] text-neutral-500">{subtitle}</p>}
+        </div>
+        <div className="flex items-center gap-3 text-[11px] font-bold">
+          <span className="flex items-center gap-1.5 text-neutral-700">
+            <span className="w-2.5 h-2.5 rounded-sm bg-blue-600" />
+            {"Total Orders"}
+          </span>
+          <span className="flex items-center gap-1.5 text-neutral-700">
+            <span className="w-2.5 h-2.5 rounded-sm bg-amber-500" />
+            {"Pending"}
+          </span>
+          {onExpand && (
+            <button
+              type="button"
+              onClick={onExpand}
+              className="p-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-100 text-neutral-600 cursor-pointer transition-colors"
+              title="Open large view"
+              aria-label={`Expand ${title}`}
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="w-full overflow-hidden">
+        <svg
+          viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+          className="w-full h-auto overflow-visible select-none"
+        >
+          {[0, 0.5, 1].map((ratio, idx) => {
+            const y = svgHeight - padBottom - usableH * ratio;
+            const labelVal = Math.round(maxVal * ratio);
+            return (
+              <g key={idx}>
+                <line
+                  x1={padLeft}
+                  y1={y}
+                  x2={svgWidth - padRight}
+                  y2={y}
+                  stroke={idx === 0 ? "#CBD5E1" : "#E5E7EB"}
+                  strokeDasharray={idx === 0 ? undefined : "3 3"}
+                  strokeWidth="1"
+                />
+                <text
+                  x={padLeft - 6}
+                  y={y + 3}
+                  textAnchor="end"
+                  fontSize={isExpanded ? "10" : "9"}
+                  fill="#64748B"
+                  fontWeight="700"
+                >
+                  {labelVal}
+                </text>
+              </g>
+            );
+          })}
+
+          {data.map((d, idx) => {
+            const ordersVal = Number(d.orders || 0);
+            const pendingVal = Number(d.pending || 0);
+            const ordersH = ordersVal > 0 ? Math.max((ordersVal / maxVal) * usableH, 4) : 0;
+            const pendingH = pendingVal > 0 ? Math.max((pendingVal / maxVal) * usableH, 4) : 0;
+
+            const slotX = padLeft + idx * slotW;
+            const centerX = slotX + slotW / 2;
+            const ordersX = centerX - barW - barGap / 2;
+            const pendingX = centerX + barGap / 2;
+            const baseLineY = svgHeight - padBottom;
+            const isHovered = hoveredIdx === idx;
+            const isNearEnd = idx !== count - 1 && count - 1 - idx < Math.max(1, Math.floor(labelStride / 2));
+            const showXLabel =
+              count <= maxLabels || (idx % labelStride === 0 && !isNearEnd) || idx === count - 1;
+            const labelAnchor =
+              count > 10 && idx === 0 ? "start" : count > 10 && idx === count - 1 ? "end" : "middle";
+            const labelX =
+              labelAnchor === "start" ? Math.max(padLeft, slotX) : labelAnchor === "end" ? Math.min(svgWidth - padRight, slotX + slotW) : centerX;
+
+            return (
+              <g
+                key={d.key || d.date || idx}
+                onMouseEnter={() => setHoveredIdx(idx)}
+                onMouseLeave={() => setHoveredIdx(null)}
+                className="cursor-pointer"
+              >
+                <rect
+                  x={slotX}
+                  y={padTop}
+                  width={slotW}
+                  height={usableH}
+                  rx="3"
+                  fill={isHovered ? "#F1F5F9" : "transparent"}
+                />
+                {ordersH > 0 && (
+                  <rect
+                    x={ordersX}
+                    y={baseLineY - ordersH}
+                    width={barW}
+                    height={ordersH}
+                    rx="2"
+                    fill={isHovered ? "#1D4ED8" : "#2563EB"}
+                  />
+                )}
+                {pendingH > 0 && (
+                  <rect
+                    x={pendingX}
+                    y={baseLineY - pendingH}
+                    width={barW}
+                    height={pendingH}
+                    rx="2"
+                    fill={isHovered ? "#D97706" : "#F59E0B"}
+                  />
+                )}
+                {showXLabel && (
+                  <text
+                    x={labelX}
+                    y={svgHeight - 5}
+                    textAnchor={labelAnchor}
+                    fontSize={isExpanded ? "9.5" : count > 20 ? "8" : "9"}
+                    fill="#64748B"
+                    fontWeight="600"
+                  >
+                    {d.label}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+
+          {hoveredIdx !== null && data[hoveredIdx] && (() => {
+            const d = data[hoveredIdx];
+            const centerX = padLeft + (hoveredIdx + 0.5) * slotW;
+            const peakVal = Math.max(Number(d.orders || 0), Number(d.pending || 0));
+            const peakY = svgHeight - padBottom - (peakVal / maxVal) * usableH;
+            const tipX = Math.min(Math.max(centerX - 74, 8), svgWidth - 156);
+            const tipY = Math.max(peakY - 58, 4);
+            return (
+              <g transform={`translate(${tipX}, ${tipY})`} className="pointer-events-none">
+                <rect width="148" height="48" rx="9" fill="#0F172A" />
+                <text x="9" y="15" fontSize="10" fill="#E2E8F0" fontWeight="700">
+                  {d.fullLabel || d.label}
+                </text>
+                <text x="9" y="29" fontSize="9.5" fill="#60A5FA" fontWeight="700">
+                  {`Orders: ${d.orders || 0}  •  Pending: ${d.pending || 0}`}
+                </text>
+                <text x="9" y="42" fontSize="9" fill="#94A3B8" fontWeight="600">
+                  {`Confirmed: ${d.confirmed || 0}  •  Transit: ${d.inTransit || 0}`}
+                </text>
+              </g>
+            );
+          })()}
+        </svg>
+      </div>
+    </div>
+  );
+};
+
 const AdminAnalytics = ({ orders = [] }) => {
-  const [timeframeDays, setTimeframeDays] = useState(7); // 7 | 14 | 30 | 0 (all)
+  const [timeframeKey, setTimeframeKey] = useState("30d"); // 7d | 14d | 30d | 6m | 1y | custom | all
+  const [customRange, setCustomRange] = useState(() => getDefaultCustomRange());
+  const [expandedChart, setExpandedChart] = useState(null); // null | "earnings" | "orders"
   const [transactions, setTransactions] = useState([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -229,20 +556,31 @@ const AdminAnalytics = ({ orders = [] }) => {
     };
   }, []);
 
+  useEffect(() => {
+    if (!expandedChart) return undefined;
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") setExpandedChart(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [expandedChart]);
+
   const analytics = useMemo(() => {
-    const now = new Date();
-    const cutoffStr =
-      timeframeDays > 0
-        ? new Date(now.getTime() - (timeframeDays - 1) * 86400000).toISOString().slice(0, 10)
-        : null;
+    const bounds = resolveAnalyticsBounds(
+      timeframeKey,
+      customRange.start,
+      customRange.end,
+      orders,
+      transactions
+    );
 
-    const scopedOrders = cutoffStr
-      ? orders.filter((o) => String(o.createdAt || "").slice(0, 10) >= cutoffStr)
-      : orders;
+    const scopedOrders = orders.filter((o) =>
+      isWithinISORange(extractLocalISODate(o.createdAt), bounds.startISO, bounds.endISO)
+    );
 
-    const scopedTxns = cutoffStr
-      ? transactions.filter((t) => String(t.created_at || "").slice(0, 10) >= cutoffStr)
-      : transactions;
+    const scopedTxns = transactions.filter((t) =>
+      isWithinISORange(extractLocalISODate(t.created_at), bounds.startISO, bounds.endISO)
+    );
 
     let totalEarnings = 0;
     let pendingCount = 0;
@@ -305,39 +643,10 @@ const AdminAnalytics = ({ orders = [] }) => {
     const liveGatewayTotal =
       gateways.SSLCOMMERZ.amount + mfsTotalAmount + gateways.COD.amount;
 
-    // Daily chart buckets
-    const daysCount = timeframeDays > 0 ? timeframeDays : 14;
-    const buckets = {};
-    for (let i = daysCount - 1; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 86400000);
-      const iso = d.toISOString().slice(0, 10);
-      buckets[iso] = {
-        date: iso,
-        label: `${d.getDate()} ${d.toLocaleString("en-US", { month: "short" })}`,
-        earnings: 0,
-        orders: 0,
-        pending: 0,
-        inTransit: 0,
-        confirmed: 0,
-      };
-    }
-
-    for (const o of scopedOrders) {
-      const iso = String(o.createdAt || "").slice(0, 10);
-      const b = buckets[iso];
-      if (!b) continue;
-      const status = String(o.status || "").toUpperCase();
-      const payStatus = String(o.paymentStatus || "").toUpperCase();
-      b.orders += 1;
-      if (payStatus === "PAID" || status === "DELIVERED") b.earnings += Number(o.total || 0);
-      if (status === "PENDING") b.pending += 1;
-      if (status === "CONFIRMED") b.confirmed += 1;
-      if (["COURIER_CREATED", "PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY"].includes(status)) {
-        b.inTransit += 1;
-      }
-    }
+    const dailySeries = buildAnalyticsSeries(scopedOrders, bounds);
 
     return {
+      bounds,
       scopedOrders,
       totalEarnings,
       pendingCount,
@@ -356,18 +665,23 @@ const AdminAnalytics = ({ orders = [] }) => {
       validatedTxns,
       initiatedTxns,
       failureRate,
-      dailySeries: Object.values(buckets),
+      dailySeries,
     };
-  }, [orders, transactions, timeframeDays]);
+  }, [orders, transactions, timeframeKey, customRange.start, customRange.end]);
 
   return (
     <div className="space-y-6">
       {/* Header & Timeframe Selector */}
-      <div className="bg-white rounded-3xl p-5 sm:p-6 border border-neutral-200 shadow-xs flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-white rounded-3xl p-5 sm:p-6 border border-neutral-200 shadow-xs flex flex-wrap items-start justify-between gap-4">
         <div>
-          <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full">
-            {"Real-Time Store Intelligence"}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full">
+              {"Real-Time Store Intelligence"}
+            </span>
+            <span className="text-[11px] font-bold text-neutral-600 bg-neutral-100 px-2.5 py-1 rounded-full">
+              {analytics.bounds.rangeLabel}
+            </span>
+          </div>
           <h1 className="text-2xl font-black text-neutral-900 mt-1.5 flex items-center gap-2">
             <Activity className="w-6 h-6 text-emerald-600" />
             <span>{"Analytics & Live Revenue Telemetry"}</span>
@@ -377,35 +691,14 @@ const AdminAnalytics = ({ orders = [] }) => {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {[
-            { days: 7, label: "7 Days" },
-            { days: 14, label: "14 Days" },
-            { days: 30, label: "30 Days" },
-            { days: 0, label: "All Time" },
-          ].map((opt) => (
-            <button
-              key={opt.days}
-              type="button"
-              onClick={() => setTimeframeDays(opt.days)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition-all ${
-                timeframeDays === opt.days
-                  ? "bg-neutral-900 text-white shadow-xs"
-                  : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={loadTransactions}
-            className="p-2 rounded-xl border border-neutral-200 hover:bg-neutral-50 text-neutral-600 cursor-pointer"
-            title="Refresh live telemetry"
-          >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
-          </button>
-        </div>
+        <TimeframeControls
+          timeframeKey={timeframeKey}
+          onSelectTimeframe={setTimeframeKey}
+          customRange={customRange}
+          onChangeCustomRange={setCustomRange}
+          onRefresh={loadTransactions}
+          isRefreshing={isRefreshing}
+        />
       </div>
 
       {/* Primary KPI Grid */}
@@ -459,27 +752,21 @@ const AdminAnalytics = ({ orders = [] }) => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <AnalyticsTrendChart
           title="Earnings Revenue Graph"
-          subtitle="Daily settled & paid revenue trend"
+          subtitle={`Settled & paid revenue trend • ${analytics.bounds.rangeLabel}`}
           data={analytics.dailySeries}
           valueKey="earnings"
           color="#10B981"
           primaryLabel="Earnings (৳)"
           formatVal={(v) => formatBDT(v)}
           gradId="analyticsEarningsGrad"
+          onExpand={() => setExpandedChart("earnings")}
         />
 
-        <AnalyticsTrendChart
+        <OrdersVerticalBarChart
           title="Orders vs Pending Pipeline Graph"
-          subtitle="Total daily orders compared with pending & in-transit queue"
+          subtitle={`Vertical order comparison • ${analytics.bounds.rangeLabel}`}
           data={analytics.dailySeries}
-          valueKey="orders"
-          secondaryKey="pending"
-          color="#2563EB"
-          secondaryColor="#F59E0B"
-          primaryLabel="Total Orders"
-          secondaryLabel="Pending"
-          formatVal={(v) => `${v} Orders`}
-          gradId="analyticsOrdersGrad"
+          onExpand={() => setExpandedChart("orders")}
         />
       </div>
 
@@ -590,6 +877,120 @@ const AdminAnalytics = ({ orders = [] }) => {
           </div>
         </div>
       </div>
+
+      {/* Expanded Large Chart Popup Modal */}
+      {expandedChart && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/60 backdrop-blur-xs p-3 sm:p-6"
+          onClick={() => setExpandedChart(null)}
+        >
+          <div
+            className="bg-white rounded-3xl w-full max-w-5xl max-h-[92vh] overflow-y-auto shadow-2xl border border-neutral-200 p-5 sm:p-7 space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-100 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="p-2 rounded-xl bg-neutral-100 text-neutral-800">
+                    {expandedChart === "earnings" ? (
+                      <TrendingUp className="w-4 h-4 text-emerald-600" />
+                    ) : (
+                      <BarChart3 className="w-4 h-4 text-blue-600" />
+                    )}
+                  </span>
+                  <div>
+                    <h2 className="text-lg font-black text-neutral-900">
+                      {expandedChart === "earnings"
+                        ? "Earnings Revenue Graph — Detailed View"
+                        : "Orders vs Pending Pipeline Graph — Detailed View"}
+                    </h2>
+                    <p className="text-xs text-neutral-500">
+                      {`${analytics.bounds.rangeLabel} • Live synchronized store metrics`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setExpandedChart(null)}
+                className="p-2 rounded-xl border border-neutral-200 hover:bg-neutral-100 text-neutral-600 cursor-pointer"
+                aria-label="Close large chart modal"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-neutral-50/80 border border-neutral-200 rounded-2xl p-3">
+              <div className="flex flex-wrap items-center gap-4 text-xs font-bold">
+                {expandedChart === "earnings" ? (
+                  <>
+                    <span className="text-neutral-700">
+                      {"Settled Earnings: "}
+                      <strong className="text-emerald-700">{formatBDT(analytics.totalEarnings)}</strong>
+                    </span>
+                    <span className="text-neutral-700">
+                      {"Pending COD: "}
+                      <strong className="text-amber-700">{formatBDT(analytics.pendingCodAmount)}</strong>
+                    </span>
+                    <span className="text-neutral-700">
+                      {"Scoped Orders: "}
+                      <strong className="text-neutral-900">{analytics.scopedOrders.length}</strong>
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-neutral-700">
+                      {"Total Orders: "}
+                      <strong className="text-blue-700">{analytics.scopedOrders.length}</strong>
+                    </span>
+                    <span className="text-neutral-700">
+                      {"Pending: "}
+                      <strong className="text-amber-600">{analytics.pendingCount}</strong>
+                    </span>
+                    <span className="text-neutral-700">
+                      {"In-Transit: "}
+                      <strong className="text-purple-700">{analytics.inTransitCount}</strong>
+                    </span>
+                    <span className="text-neutral-700">
+                      {"Delivered: "}
+                      <strong className="text-emerald-700">{analytics.deliveredCount}</strong>
+                    </span>
+                  </>
+                )}
+              </div>
+
+              <TimeframeControls
+                timeframeKey={timeframeKey}
+                onSelectTimeframe={setTimeframeKey}
+                customRange={customRange}
+                onChangeCustomRange={setCustomRange}
+              />
+            </div>
+
+            {expandedChart === "earnings" ? (
+              <AnalyticsTrendChart
+                title="Earnings Revenue Graph"
+                subtitle={`Settled & paid revenue trend • ${analytics.bounds.rangeLabel}`}
+                data={analytics.dailySeries}
+                valueKey="earnings"
+                color="#10B981"
+                primaryLabel="Earnings (৳)"
+                formatVal={(v) => formatBDT(v)}
+                gradId="analyticsEarningsGradModal"
+                isExpanded={true}
+              />
+            ) : (
+              <OrdersVerticalBarChart
+                title="Orders vs Pending Pipeline Graph"
+                subtitle={`Vertical order comparison • ${analytics.bounds.rangeLabel}`}
+                data={analytics.dailySeries}
+                isExpanded={true}
+              />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
