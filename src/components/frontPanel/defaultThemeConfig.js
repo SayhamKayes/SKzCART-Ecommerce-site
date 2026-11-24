@@ -242,6 +242,11 @@ export const DEFAULT_THEME_CONFIG = {
       },
     ],
 
+    // Product Card Hover Pill (Storefront & Shop Grid)
+    cardHoverBadgeEnabled: true,
+    cardHoverLeftText: "Cash on Delivery",
+    cardHoverRightText: "Fast Delivery",
+
     // Product Editorial Section 5: Dynamic WooCommerce-style Delivery Cost & Shipping Zones
     deliveryZones: [
       {
@@ -313,6 +318,7 @@ export const DEFAULT_THEME_CONFIG = {
     footerCourier2: "Steadfast Courier Service",
     footerCourier3: "RedX Logistics",
     footerCopyrightText: "",
+    footerShowPayments: true,
     footerPaymentColumns: 4, // 2 | 3 | 4 columns in payment methods
     whatsappProvider: "META_CLOUD",
     whatsappToken: "",

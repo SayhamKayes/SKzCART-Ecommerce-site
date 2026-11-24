@@ -30,7 +30,7 @@ export const HERO_SLIDES = [
   {
     id: 'slide-1',
     isActive: true,
-    productId: 'prod-1',
+    productId: '',
     productSlug: '360-rotating-makeup-brush-organizer',
     bgImage: brushHolderBgImg,
     productImage: brushHolderProductImg,
@@ -58,7 +58,7 @@ export const HERO_SLIDES = [
   {
     id: 'slide-2',
     isActive: true,
-    productId: 'prod-2',
+    productId: '',
     productSlug: 'retro-rechargeable-camping-lantern',
     bgImage: lanternBgImg,
     productImage: lanternProductImg,
@@ -86,7 +86,7 @@ export const HERO_SLIDES = [
   {
     id: 'slide-3',
     isActive: true,
-    productId: 'prod-4',
+    productId: '',
     productSlug: 'facial-massage-gun-light-age',
     bgImage: massageGunBgImg,
     productImage: massageGunProductImg,
@@ -179,7 +179,7 @@ export const HeroSection = ({
   slides = HERO_SLIDES,
 }) => {
   const { isEnglish } = useLanguage();
-  const { themeConfig } = useThemeConfig();
+  const { themeConfig, isThemeLoaded } = useThemeConfig();
   const homeConfig = themeConfig?.homePage || {};
 
   const [activeIndex, setActiveIndex] = useState(0);
@@ -209,12 +209,22 @@ export const HeroSection = ({
     else if (distance < -minSwipeDistance) handlePrev();
   };
 
-  const configuredRaw = Array.isArray(homeConfig.heroSlides) && homeConfig.heroSlides.length > 0
+  const hasDbSlides = Array.isArray(homeConfig.heroSlides) && homeConfig.heroSlides.length > 0;
+  const configuredRaw = hasDbSlides
     ? homeConfig.heroSlides
     : (slides && slides.length > 0 ? slides : HERO_SLIDES);
 
   const visibleConfigured = configuredRaw.filter((s) => s && s.isActive !== false);
-  const finalBaseSlides = visibleConfigured.length > 0 ? visibleConfigured : HERO_SLIDES;
+  const finalBaseSlides = hasDbSlides ? visibleConfigured : (visibleConfigured.length > 0 ? visibleConfigured : HERO_SLIDES);
+
+  if (!isThemeLoaded) {
+    return (
+      <section className="relative w-full min-h-[520px] sm:min-h-[600px] bg-neutral-900 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+      </section>
+    );
+  }
+  if (finalBaseSlides.length === 0) return null;
 
   const hasCustomHeadline = Boolean(
     homeConfig.heroHeadline &&
@@ -305,17 +315,17 @@ export const HeroSection = ({
       return;
     }
     if (actionType === "open_campaign") {
-      const rawCampaignId = themeConfig?.campaign?.activeProductId;
-      const activeCampaignId =
-        (rawCampaignId && rawCampaignId !== 'prod-1790503380337')
-          ? rawCampaignId
-          : (currentProduct?.id || (products && products[0]?.id) || 'prod-1');
+      const activeIds = Array.isArray(themeConfig?.campaign?.activeProductIds) ? themeConfig.campaign.activeProductIds : [];
+      const rawCampaignId = activeIds[0] || themeConfig?.campaign?.activeProductId;
+      const activeCampaignId = rawCampaignId || currentProduct?.id || (products && products[0]?.id) || '';
       const activeCampaignProduct =
-        (products || []).find((p) => p.id === activeCampaignId) || currentProduct || (products && products[0]);
-      if (onNavigateToLanding) {
-        onNavigateToLanding({ ...(activeCampaignProduct || {}), id: activeCampaignId, forceCampaign: true });
-      } else {
+        (products || []).find((p) => p.id === activeCampaignId) || currentProduct || (products && products[0]) || null;
+      if (onNavigateToLanding && activeCampaignProduct) {
+        onNavigateToLanding({ ...activeCampaignProduct, id: activeCampaignProduct.id, forceCampaign: true });
+      } else if (activeCampaignId) {
         window.location.href = `/campaign-products?product=${activeCampaignProduct?.id || activeCampaignId}`;
+      } else {
+        handleScrollToProducts();
       }
       return;
     }

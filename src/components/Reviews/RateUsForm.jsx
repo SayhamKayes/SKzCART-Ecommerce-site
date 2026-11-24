@@ -63,37 +63,20 @@ export const RateUsForm = ({ order, currentUser = null, isEnglish = false, onRev
     currentUser?.phone ||
     '';
 
-  const customerLocation =
-    [
-      order?.address?.district || order?.addressSummary?.district,
-      order?.address?.thana || order?.addressSummary?.thana || order?.address?.area
-    ].filter(Boolean).join(', ') || 'Dhaka, Bangladesh';
+  const customerLocation = [
+    order?.address?.district || order?.addressSummary?.district,
+    order?.address?.thana || order?.addressSummary?.thana || order?.address?.area
+  ].filter(Boolean).join(', ');
 
-  // Check if this order already has a review (backend check + localStorage fallback)
+  // Check if this order already has a review directly from central backend database
   useEffect(() => {
     let isMounted = true;
     const checkExisting = async () => {
       if (!orderId) return;
-
-      // 1. Check localStorage first for instant display
-      try {
-        const stored = JSON.parse(localStorage.getItem('amardokan_reviewed_orders') || '{}');
-        if (stored[orderId]) {
-          if (isMounted) setSubmittedReview(stored[orderId]);
-          return;
-        }
-      } catch { }
-
-      // 2. Fetch from backend database
       try {
         const reviews = await apiClient.getReviews({ order_id: orderId });
         if (isMounted && Array.isArray(reviews) && reviews.length > 0) {
           setSubmittedReview(reviews[0]);
-          try {
-            const stored = JSON.parse(localStorage.getItem('amardokan_reviewed_orders') || '{}');
-            stored[orderId] = reviews[0];
-            localStorage.setItem('amardokan_reviewed_orders', JSON.stringify(stored));
-          } catch { }
         }
       } catch (err) {
         console.warn('Could not verify existing review:', err);
@@ -141,13 +124,6 @@ export const RateUsForm = ({ order, currentUser = null, isEnglish = false, onRev
       const createdReview = res?.review || payload;
 
       setSubmittedReview(createdReview);
-
-      // Save to localStorage
-      try {
-        const stored = JSON.parse(localStorage.getItem('amardokan_reviewed_orders') || '{}');
-        stored[orderId] = createdReview;
-        localStorage.setItem('amardokan_reviewed_orders', JSON.stringify(stored));
-      } catch { }
 
       if (onReviewSubmitted) {
         onReviewSubmitted(createdReview);

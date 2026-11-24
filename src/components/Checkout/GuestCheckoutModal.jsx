@@ -61,7 +61,11 @@ const GuestCheckoutModal = ({
   const [phone, setPhone] = useState(currentUser?.phone || "");
   const [email, setEmail] = useState(currentUser?.email || "");
   const [district, setDistrict] = useState(currentUser?.district || "Dhaka");
-  const [thana, setThana] = useState(currentUser?.thana || "Dhanmondi");
+  const [thana, setThana] = useState(() => {
+    if (currentUser?.thana) return currentUser.thana;
+    const list = getThanasForDistrict(currentUser?.district || "Dhaka");
+    return list[0] || "";
+  });
   const [fullAddress, setFullAddress] = useState(currentUser?.fullAddress || currentUser?.address || "");
   const [orderNote, setOrderNote] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("COD");
@@ -100,7 +104,7 @@ const GuestCheckoutModal = ({
     const code = couponCodeInput.trim().toUpperCase();
     const found = availableCoupons.find((c) => c.code.toUpperCase() === code && c.isActive);
     if (!found) {
-      setCouponError("Invalid coupon code! (Try: WELCOME50 or EID100)");
+      setCouponError("Invalid or expired coupon code.");
       return;
     }
     if (subtotal < found.minSpend) {
@@ -158,7 +162,10 @@ const GuestCheckoutModal = ({
   };
 
   const activeManualMethods = useMemo(() => {
-    return ['BKASH', 'NAGAD', 'ROCKET'].filter((m) => isMethodActive(m));
+    return ['BKASH', 'NAGAD', 'ROCKET'].filter((m) => {
+      const cfg = getMethodConfig(m);
+      return isMethodActive(m) && Boolean(String(cfg?.number || '').trim());
+    });
   }, [paymentConfigs]);
 
   const availableThanas = useMemo(() => {
@@ -926,18 +933,6 @@ const GuestCheckoutModal = ({
                           {formatAccountTypeLabel(getMethodConfig(paymentMethod)?.account_type, isEnglish)}
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const prefix = paymentMethod === "BKASH" ? "BK" : paymentMethod === "NAGAD" ? "NG" : "RK";
-                          setPaymentTrxId(prefix + Date.now().toString(36).toUpperCase());
-                          setSenderWallet(phone || "01712345678");
-                        }}
-                        className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors cursor-pointer"
-                        title={"Auto-fill for testing"}
-                      >
-                        ⚡ {"Test Auto-Fill TrxID"}
-                      </button>
                     </div>
 
                     <div className="bg-neutral-800/80 p-3 rounded-xl space-y-1.5 text-[11px] text-neutral-300">
@@ -948,12 +943,7 @@ const GuestCheckoutModal = ({
                             : ("Merchant Number:")}
                         </span>
                         <span className="font-mono font-bold text-emerald-400 text-xs tracking-wider">
-                          {getMethodConfig(paymentMethod)?.number ||
-                            (paymentMethod === "BKASH"
-                              ? "01892-019281"
-                              : paymentMethod === "NAGAD"
-                                ? "01918-293810"
-                                : "01712-345678")}
+                          {getMethodConfig(paymentMethod)?.number || "Configured in Admin"}
                         </span>
                       </div>
 
@@ -1116,7 +1106,10 @@ const GuestCheckoutModal = ({
                     <div className="flex gap-2">
                       <input
                         type="text"
-                        placeholder={"Promo code (e.g. WELCOME50)"}
+                        placeholder={(() => {
+                          const activeSample = (availableCoupons || []).find((c) => c && c.isActive && c.code);
+                          return activeSample ? `Promo code (e.g. ${activeSample.code})` : "Enter promo code";
+                        })()}
                         value={couponCodeInput}
                         onChange={(e) => {
                           setCouponCodeInput(e.target.value);

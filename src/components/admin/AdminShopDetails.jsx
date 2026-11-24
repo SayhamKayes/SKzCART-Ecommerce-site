@@ -217,13 +217,13 @@ export const AdminShopDetails = ({
   const [shopLanguageMode, setShopLanguageMode] = useState("en");
   const [defaultLanguage, setDefaultLanguage] = useState("en");
   const [whatsappNumber, setWhatsappNumber] = useState(
-    themeConfig?.shop?.whatsappNumber || "01712849201"
+    themeConfig?.shop?.whatsappNumber ?? ""
   );
   const [supportEmail, setSupportEmail] = useState(
-    themeConfig?.shop?.supportEmail || "support@amardokan.com"
+    themeConfig?.shop?.supportEmail ?? ""
   );
   const [address, setAddress] = useState(
-    themeConfig?.shop?.address || "AmarDokan Head Office, Dhanmondi 27, Dhaka, Bangladesh"
+    themeConfig?.shop?.address ?? ""
   );
   // Custom Order ID / Transaction ID / Reconciliation Prefixes
   const [orderSymbol, setOrderSymbol] = useState(
@@ -378,6 +378,9 @@ export const AdminShopDetails = ({
   const [footerPaymentColumns, setFooterPaymentColumns] = useState(
     themeConfig?.shop?.footerPaymentColumns || 4
   );
+  const [footerShowPayments, setFooterShowPayments] = useState(
+    themeConfig?.shop?.footerShowPayments !== false
+  );
 
   // Status & UI States
   const [isSaving, setIsSaving] = useState(false);
@@ -443,6 +446,7 @@ export const AdminShopDetails = ({
       if (themeConfig.shop.footerCourier3 !== undefined) setFooterCourier3(themeConfig.shop.footerCourier3);
       if (themeConfig.shop.footerCopyrightText !== undefined) setFooterCopyrightText(themeConfig.shop.footerCopyrightText);
       if (themeConfig.shop.footerPaymentColumns !== undefined) setFooterPaymentColumns(Number(themeConfig.shop.footerPaymentColumns) || 4);
+      if (themeConfig.shop.footerShowPayments !== undefined) setFooterShowPayments(themeConfig.shop.footerShowPayments !== false);
     }
     if (themeConfig.header) {
       if (themeConfig.header.announcementText !== undefined || themeConfig.header.announcementTextEn !== undefined) {
@@ -565,6 +569,7 @@ export const AdminShopDetails = ({
       footerCourier3: footerCourier3.trim(),
       footerCopyrightText: footerCopyrightText.trim(),
       footerPaymentColumns: Number(footerPaymentColumns) || 4,
+      footerShowPayments,
       idPrefixes: {
         orderSymbol: orderSymbol.trim(),
         orderIdPrefix: orderIdPrefix.trim().toUpperCase(),
@@ -1889,19 +1894,33 @@ export const AdminShopDetails = ({
 
             {/* Payment Methods Layout Grid Selection */}
             <div className="p-5 rounded-2xl bg-neutral-50 border border-neutral-200 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-700 flex items-center gap-2">
                     <Layout className="w-4 h-4 text-emerald-600" />
                     <span>{"Payment Methods Column Layout"}</span>
                   </h3>
                   <p className="text-[11px] text-neutral-500 mt-0.5">
-                    {"Choose how many payment method icons to display per row in the website footer (2, 3, or 4 columns)."}
+                    {"Footer automatically displays active gateways from Payments & Gateways. Choose visibility & columns (2, 3, or 4)."}
                   </p>
                 </div>
-                <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800">
-                  {footerPaymentColumns} {"Columns Selected"}
-                </span>
+                <div className="flex items-center gap-3">
+                  <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white border border-neutral-200 text-xs font-bold text-neutral-700 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={footerShowPayments}
+                      onChange={(e) => {
+                        markDirty();
+                        setFooterShowPayments(e.target.checked);
+                      }}
+                      className="w-4 h-4 accent-emerald-600 rounded"
+                    />
+                    <span>Show Payment Badges</span>
+                  </label>
+                  <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800">
+                    {footerPaymentColumns} {"Columns Selected"}
+                  </span>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">

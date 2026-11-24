@@ -4,6 +4,7 @@ import { getProductTagInfo } from '../../utils/productTags';
 import { useLanguage } from '../../Context/LanguageContext';
 import { useThemeConfig } from '../frontPanel/FrontPanelContext';
 import { getProductImage, handleProductImageError } from '../../utils/productImage';
+import { resolveEditorialConfig } from '../../utils/productEditorial';
 
 const ProductCard = ({
   product,
@@ -14,6 +15,8 @@ const ProductCard = ({
   const { language, isEnglish, getProductName, getCategoryName } = useLanguage();
   const { themeConfig } = useThemeConfig();
   const pcTheme = themeConfig?.themesColors?.productCards || {};
+  const prodEditorial = resolveEditorialConfig(themeConfig);
+  const showHoverBadge = prodEditorial.cardHoverBadgeEnabled !== false && Boolean(prodEditorial.cardHoverLeftText || prodEditorial.cardHoverRightText);
   const discountPercent = Math.round(
     (product.regularPrice - product.price) / product.regularPrice * 100
   );
@@ -80,16 +83,20 @@ const ProductCard = ({
           )}
         </div>
 
-        {/* Quick Delivery Badge */}
-        <div className="absolute bottom-2 left-2 right-2 bg-neutral-900/80 backdrop-blur-xs text-white text-[10px] py-1 px-2 rounded-lg flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity">
-          <span className="flex items-center gap-1">
-            <Truck className="w-3 h-3 text-emerald-400" />
-            <span>{'Cash on Delivery'}</span>
-          </span>
-          <span className="text-emerald-300 font-medium">
-            {'Dhaka 24h'}
-          </span>
-        </div>
+        {/* Dynamic Quick Delivery / Highlight Hover Pill (Managed in Admin -> Product Editorial) */}
+        {showHoverBadge && (
+          <div className="absolute bottom-2 left-2 right-2 bg-neutral-900/80 backdrop-blur-xs text-white text-[10px] py-1 px-2 rounded-lg flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity">
+            <span className="flex items-center gap-1 truncate">
+              <Truck className="w-3 h-3 text-emerald-400 shrink-0" />
+              <span className="truncate">{prodEditorial.cardHoverLeftText || ""}</span>
+            </span>
+            {prodEditorial.cardHoverRightText && (
+              <span className="text-emerald-300 font-medium shrink-0 ml-2">
+                {prodEditorial.cardHoverRightText}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Details Area */}

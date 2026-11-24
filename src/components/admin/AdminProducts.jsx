@@ -1002,7 +1002,7 @@ const AdminProducts = ({
       description: newDescription.trim() || "Original premium quality product. Fast delivery service.",
       rating: 4.8,
       reviewsCount: 1,
-      deliveryDays: "Dhaka 24h, Nationwide 48h",
+      deliveryDays: "",
       productType: newProductType,
       variants: newProductType === "variable" ? newVariants : [],
     };

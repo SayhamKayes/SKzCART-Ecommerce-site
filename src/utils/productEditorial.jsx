@@ -166,7 +166,7 @@ export function formatEditorialCardText(text, themeConfig) {
   const hotline =
     themeConfig?.shop?.whatsappNumber ||
     themeConfig?.shop?.hotline ||
-    "09612345678";
+    "";
   return str.replace(/\{\{\s*hotline\s*\}\}/gi, hotline);
 }
 

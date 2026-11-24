@@ -3,18 +3,18 @@ import { useThemeConfig } from "../frontPanel/FrontPanelContext";
 import { useLanguage } from "../../Context/LanguageContext";
 
 export const WhatsAppWidget = () => {
-  const { themeConfig } = useThemeConfig();
+  const { themeConfig, isThemeLoaded } = useThemeConfig();
   const { isEnglish } = useLanguage();
   const shop = themeConfig?.shop || {};
 
-  // Dynamically retrieve the WhatsApp Support Number from Admin Panel's Shop Details & Hub
-  const rawNumber = shop.whatsappNumber || "01712849201";
+  // Strictly retrieve WhatsApp Support Number from Admin Panel (never fabricate a fallback phone number)
+  const rawNumber = String(shop.whatsappNumber || "").trim();
   const shopName = shop.name || "AmarDokan";
-  const isEnabled = shop.whatsappEnabled !== false;
+  const isEnabled = isThemeLoaded && shop.whatsappEnabled !== false && Boolean(rawNumber);
 
   const [isHovered, setIsHovered] = useState(false);
 
-  if (!isEnabled || !rawNumber) return null;
+  if (!isEnabled) return null;
 
   // Format phone number for international wa.me standard
   const getCleanNumber = (number) => {

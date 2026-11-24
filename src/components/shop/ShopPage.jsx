@@ -900,10 +900,12 @@ export const ShopPage = ({
                         </p>
 
                         {/* Delivery badge */}
-                        <div className="pt-1 flex items-center gap-1.5 text-[11px] text-emerald-700 font-semibold">
-                          <Truck className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>{product.deliveryDays || "Dhaka 24h, Nationwide 48h"}</span>
-                        </div>
+                        {product.deliveryDays && (
+                          <div className="pt-1 flex items-center gap-1.5 text-[11px] text-emerald-700 font-semibold">
+                            <Truck className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>{product.deliveryDays}</span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Right: Price & CTA Buttons */}

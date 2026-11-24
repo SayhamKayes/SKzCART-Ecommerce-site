@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Sparkles,
   Zap,
@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { FrontPanelAuth } from "./FrontPanelAuth";
 import { useThemeConfig } from "./FrontPanelContext";
+import { apiClient } from "../../services/api";
 import { ShopCustomizer } from "./sections/ShopCustomizer";
 import { CampaignCustomizer } from "./sections/CampaignCustomizer";
 import { ProductPageCustomizer } from "./sections/ProductPageCustomizer";
@@ -27,18 +28,71 @@ export const FrontPanel = ({
   products = [],
   onNavigateToView,
 }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return sessionStorage.getItem("amardokan_front_auth") === "true";
-  });
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isVerifyingSession, setIsVerifyingSession] = useState(true);
   const [activeTab, setActiveTab] = useState("campaign");
   const [saveToast, setSaveToast] = useState(false);
 
   const { themeConfig, updateThemeConfig, resetThemeConfig } = useThemeConfig();
 
+  useEffect(() => {
+    let active = true;
+    const checkSession = async () => {
+      try {
+        const frontToken = sessionStorage.getItem("amardokan_front_token");
+        const adminToken = sessionStorage.getItem("amardokan_staff_token") || localStorage.getItem("amardokan_staff_token");
+        const tokenToCheck = frontToken || adminToken;
+        if (!tokenToCheck) {
+          if (active) {
+            setIsAuthenticated(false);
+            setIsVerifyingSession(false);
+          }
+          return;
+        }
+        const res = await apiClient.verifyStaffToken(tokenToCheck, "front_panel");
+        if (active) {
+          if (res?.success && res?.valid && res?.user) {
+            sessionStorage.setItem("amardokan_front_auth", "true");
+            sessionStorage.setItem("amardokan_front_user", JSON.stringify(res.user));
+            setIsAuthenticated(true);
+          } else {
+            sessionStorage.removeItem("amardokan_front_auth");
+            sessionStorage.removeItem("amardokan_front_token");
+            sessionStorage.removeItem("amardokan_front_user");
+            setIsAuthenticated(false);
+          }
+          setIsVerifyingSession(false);
+        }
+      } catch {
+        if (active) {
+          setIsAuthenticated(false);
+          setIsVerifyingSession(false);
+        }
+      }
+    };
+    checkSession();
+    return () => { active = false; };
+  }, []);
+
   const handleLogout = () => {
-    sessionStorage.removeItem("amardokan_front_auth");
+    try {
+      sessionStorage.removeItem("amardokan_front_auth");
+      sessionStorage.removeItem("amardokan_front_token");
+      sessionStorage.removeItem("amardokan_front_user");
+    } catch {}
     setIsAuthenticated(false);
   };
+
+  if (isVerifyingSession) {
+    return (
+      <div className="min-h-screen bg-neutral-950 flex items-center justify-center text-neutral-300 text-xs">
+        <div className="flex items-center gap-2.5">
+          <span className="inline-block w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          <span>Verifying staff access...</span>
+        </div>
+      </div>
+    );
+  }
 
   const handleConfigChange = (section, values) => {
     updateThemeConfig(section, values);

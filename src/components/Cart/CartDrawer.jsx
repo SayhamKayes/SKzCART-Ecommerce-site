@@ -40,9 +40,9 @@ const CartDrawer = ({
     setCouponError("");
     if (!couponCodeInput.trim()) return;
     const code = couponCodeInput.trim().toUpperCase();
-    const found = availableCoupons.find((c) => c.code.toUpperCase() === code && c.isActive);
+    const found = (availableCoupons || []).find((c) => c.code.toUpperCase() === code && c.isActive);
     if (!found) {
-      setCouponError("Invalid coupon code! (Try: WELCOME50 or EID100)");
+      setCouponError("Invalid or expired coupon code.");
       return;
     }
     if (subtotal < found.minSpend) {
@@ -192,7 +192,10 @@ const CartDrawer = ({
                         <Tag className="w-3.5 h-3.5 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
                           type="text"
-                          placeholder={"Promo code (e.g. WELCOME50)"}
+                          placeholder={(() => {
+                            const activeSample = (availableCoupons || []).find((c) => c && c.isActive && c.code);
+                            return activeSample ? `Promo code (e.g. ${activeSample.code})` : "Enter promo code";
+                          })()}
                           value={couponCodeInput}
                           onChange={(e) => setCouponCodeInput(e.target.value)}
                           className="w-full pl-9 pr-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-xs uppercase placeholder:normal-case focus:bg-white focus:border-emerald-500 focus:outline-hidden"
