@@ -23,6 +23,7 @@ import {
   Filter,
   TrendingUp,
   BarChart3,
+  PieChart,
   ExternalLink,
   X,
   Share2,
@@ -140,7 +141,7 @@ const AdminMarketing = ({
 
   // Test Event Dispatcher States
   const [testEventName, setTestEventName] = useState("Purchase");
-  const [testValue, setTestValue] = useState(2500);
+  const [testValue, setTestValue] = useState(() => Number(products[0]?.price || 0));
   const [testStatus, setTestStatus] = useState("");
   const [isFiringTest, setIsFiringTest] = useState(false);
 
@@ -150,7 +151,9 @@ const AdminMarketing = ({
   const [hasLoadedServerBundle, setHasLoadedServerBundle] = useState(false);
   const [savedPixelId, setSavedPixelId] = useState("");
   const [rightPanelTab, setRightPanelTab] = useState("stream"); // "stream" | "chart"
+  const [chartViewMode, setChartViewMode] = useState("pie"); // "pie" | "bar"
   const [chartMetricTab, setChartMetricTab] = useState("ALL"); // ALL | VIEWS | CLICKS | PURCHASES
+  const [hoveredPieKey, setHoveredPieKey] = useState(null);
   const [nowTime, setNowTime] = useState(Date.now());
 
   // Single-Store Meta Ads States (declared early before useMemo hooks)
@@ -208,6 +211,12 @@ const AdminMarketing = ({
           if (exists) return prev;
           return [msg.payload, ...prev];
         });
+      } else if (
+        msg.type === "ORDER_CREATED" ||
+        msg.type === "ORDER_UPDATED" ||
+        msg.type === "PRODUCT_UPDATED"
+      ) {
+        fetchEvents();
       }
     });
 
@@ -348,6 +357,19 @@ const AdminMarketing = ({
     } catch {}
   };
 
+  const activeTestProduct = useMemo(() => {
+    if (targetScope === "PRODUCT" && targetProductId) {
+      return products.find((item) => String(item.id) === String(targetProductId)) || products[0] || null;
+    }
+    return products[0] || null;
+  }, [products, targetScope, targetProductId]);
+
+  useEffect(() => {
+    if (activeTestProduct && Number(activeTestProduct.price) > 0) {
+      setTestValue(Number(activeTestProduct.price));
+    }
+  }, [activeTestProduct]);
+
   // Dedicated Fire Test Event Handler
   const handleFireTestEvent = async () => {
     if (!isActive) {
@@ -357,24 +379,18 @@ const AdminMarketing = ({
     setIsFiringTest(true);
     setTestStatus("");
 
+    const resolvedPrice = Number(testValue || activeTestProduct?.price || 0);
     const eventPayload = {
-      value: Number(testValue) || 2500,
+      value: resolvedPrice,
       currency: "BDT",
       source: "admin_test_console",
       campaign: "test_verification",
     };
 
-    if (targetScope === "PRODUCT" && targetProductId) {
-      const p = products.find((item) => item.id === targetProductId);
-      if (p) {
-        eventPayload.productId = p.id;
-        eventPayload.name = p.name;
-        eventPayload.productName = p.name;
-      }
-    } else if (products && products.length > 0) {
-      eventPayload.productId = products[0].id;
-      eventPayload.name = products[0].name;
-      eventPayload.productName = products[0].name;
+    if (activeTestProduct) {
+      eventPayload.productId = activeTestProduct.id;
+      eventPayload.name = activeTestProduct.name;
+      eventPayload.productName = activeTestProduct.name;
     } else {
       eventPayload.name = "Storewide Catalog Product";
       eventPayload.productName = "Storewide Catalog Product";
@@ -422,7 +438,10 @@ const AdminMarketing = ({
     for (const p of Array.isArray(products) ? products : []) {
       if (!p) continue;
       if (p.id) byId.set(String(p.id).trim(), p);
+      if (p.slug) byId.set(String(p.slug).trim(), p);
+      if (p.sku) byId.set(String(p.sku).trim(), p);
       if (p.name) byName.set(String(p.name).trim().toLowerCase(), p);
+      if (p.nameEn) byName.set(String(p.nameEn).trim().toLowerCase(), p);
     }
     return { byId, byName };
   }, [products]);
@@ -460,7 +479,7 @@ const AdminMarketing = ({
       });
     }
     return activeOnly;
-  }, [recentEvents, activePixelValue, targetScope, targetProductId, matchActiveStoreProduct]);
+  }, [isActive, recentEvents, activePixelValue, targetScope, targetProductId, matchActiveStoreProduct]);
 
   // Dynamic Pixel Product Analytics (Views, Clicks & Purchases strictly for active Store products)
   const pixelProductInsights = useMemo(() => {
@@ -586,12 +605,14 @@ const AdminMarketing = ({
 
     return {
       rows: sortedRows.slice(0, 6),
+      allRows: sortedRows,
       topViewed,
       topClicked,
       topPurchased,
       totals,
     };
   }, [
+    isActive,
     activePixelValue,
     targetScope,
     targetProductId,
@@ -793,7 +814,7 @@ const AdminMarketing = ({
   // Generate 100% valid trackable link targeting campaign landing or storefront
   const getCampaignUrl = (camp) => {
     const slug = camp.utmCampaign || (camp.name || "ad_campaign").toLowerCase().replace(/[^a-z0-9]+/g, "_");
-    const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://amardokan.com";
+    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
     if (!camp.isPaused && camp.landingUrl) {
       return camp.landingUrl;
     }
@@ -840,7 +861,7 @@ const AdminMarketing = ({
 
   // Copy Facebook Catalog XML Feed URL
   const handleCopyCatalogXml = () => {
-    const fallbackOrigin = typeof window !== "undefined" ? window.location.origin : "https://amardokan.com";
+    const fallbackOrigin = typeof window !== "undefined" ? window.location.origin : "";
     const apiBase = API_BASE_URL || fallbackOrigin;
     const xmlUrl = `${apiBase}/api/v1/marketing/facebook-catalog.xml`;
     if (navigator?.clipboard?.writeText) {
@@ -1921,7 +1942,7 @@ const AdminMarketing = ({
                   {"Generated Trackable UTM URL:"}
                 </span>
                 <span className="font-mono text-[10px] text-emerald-800 break-all block">
-                  {typeof window !== "undefined" ? window.location.origin : "https://amardokan.com"}
+                  {typeof window !== "undefined" ? window.location.origin : ""}
                   {newCampProductId !== "all"
                     ? `/campaign-products?product=${newCampProductId}&utm_source=${newCampSource}&utm_campaign=${newCampName ? newCampName.toLowerCase().replace(/[^a-z0-9]+/g, "_") : "campaign"}`
                     : `/?utm_source=${newCampSource}&utm_campaign=${newCampName ? newCampName.toLowerCase().replace(/[^a-z0-9]+/g, "_") : "campaign"}`}
@@ -2111,18 +2132,25 @@ const AdminMarketing = ({
               <Target className="w-4 h-4 text-emerald-600" />
               <span>{"Meta Pixel & CAPI Configuration"}</span>
             </h3>
-            {/* Active Toggle */}
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <span className="text-[11px] font-semibold text-neutral-600">
-                {isActive ? ("Active") : ("Paused")}
-              </span>
-              <input
-                type="checkbox"
-                checked={isActive}
-                onChange={(e) => handleToggleActive(e.target.checked)}
-                className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500 cursor-pointer"
+            {/* Active / Inactive Toggle Button */}
+            <button
+              type="button"
+              onClick={() => handleToggleActive(!isActive)}
+              aria-pressed={isActive}
+              className={`px-3 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer inline-flex items-center gap-1.5 ${
+                isActive
+                  ? "bg-emerald-50 border-emerald-300 text-emerald-800 hover:bg-emerald-100"
+                  : "bg-neutral-100 border-neutral-300 text-neutral-600 hover:bg-neutral-200"
+              }`}
+              title={isActive ? "Click to mark Inactive" : "Click to mark Active"}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isActive ? "bg-emerald-500 animate-pulse" : "bg-neutral-400"
+                }`}
               />
-            </label>
+              <span>{isActive ? "Active" : "Inactive"}</span>
+            </button>
           </div>
 
           {/* Success / Error Messages */}
@@ -2315,7 +2343,9 @@ const AdminMarketing = ({
                 onChange={(e) => setTestEventName(e.target.value)}
                 className="px-2.5 py-1.5 bg-white border border-neutral-300 rounded-lg text-xs font-semibold text-neutral-800"
               >
-                <option value="Purchase">Purchase (৳2,500)</option>
+                <option value="Purchase">
+                  {`Purchase (${formatBDT(Number(testValue || activeTestProduct?.price || 0))})`}
+                </option>
                 <option value="AddToCart">AddToCart</option>
                 <option value="ViewContent">ViewContent</option>
                 <option value="ProductClick">ProductClick</option>
@@ -2373,7 +2403,7 @@ const AdminMarketing = ({
                     : "border-transparent text-neutral-500 hover:text-neutral-800"
                 }`}
               >
-                <BarChart3 className="w-3.5 h-3.5" />
+                {chartViewMode === "pie" ? <PieChart className="w-3.5 h-3.5" /> : <BarChart3 className="w-3.5 h-3.5" />}
                 <span>{"Pixel Product Performance Chart"}</span>
               </button>
             </div>
@@ -2603,7 +2633,7 @@ const AdminMarketing = ({
                     </div>
                   </div>
 
-                  {/* Metric Filter Tabs + Legend */}
+                  {/* Chart View Switcher (Pie Chart vs Bar Chart) + Metric Filter Tabs */}
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-1 text-[10px]">
                       {[
@@ -2615,7 +2645,10 @@ const AdminMarketing = ({
                         <button
                           key={tab.id}
                           type="button"
-                          onClick={() => setChartMetricTab(tab.id)}
+                          onClick={() => {
+                            setChartMetricTab(tab.id);
+                            setHoveredPieKey(null);
+                          }}
                           className={`px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer ${
                             chartMetricTab === tab.id
                               ? "bg-neutral-900 text-white"
@@ -2626,99 +2659,416 @@ const AdminMarketing = ({
                         </button>
                       ))}
                     </div>
-                    <div className="flex items-center gap-2.5 text-[10px] font-semibold text-neutral-600">
-                      <span className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-xs bg-purple-500 inline-block" />
-                        {"Views"}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-xs bg-blue-500 inline-block" />
-                        {"Clicks"}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-xs bg-emerald-500 inline-block" />
-                        {"Purchased"}
-                      </span>
+
+                    {/* Pie Chart vs Bar Chart Toggle */}
+                    <div className="inline-flex items-center bg-neutral-100 p-0.5 rounded-xl border border-neutral-200 text-[10px]">
+                      <button
+                        type="button"
+                        onClick={() => setChartViewMode("pie")}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                          chartViewMode === "pie"
+                            ? "bg-white text-emerald-700 shadow-2xs border border-neutral-200/80"
+                            : "text-neutral-600 hover:text-neutral-900"
+                        }`}
+                      >
+                        <PieChart className="w-3 h-3" />
+                        <span>{"Pie Chart"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setChartViewMode("bar")}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                          chartViewMode === "bar"
+                            ? "bg-white text-emerald-700 shadow-2xs border border-neutral-200/80"
+                            : "text-neutral-600 hover:text-neutral-900"
+                        }`}
+                      >
+                        <BarChart3 className="w-3 h-3" />
+                        <span>{"Bar Chart"}</span>
+                      </button>
                     </div>
                   </div>
 
-                  {/* Grouped Horizontal Bar Chart */}
-                  <div className="space-y-2.5 bg-neutral-50/70 rounded-2xl p-3.5 border border-neutral-200/80 max-h-[360px] overflow-y-auto">
-                    {pixelProductInsights.rows.length === 0 ? (
-                      <div className="py-8 text-center text-xs text-neutral-400">
-                        {targetScope === "PRODUCT"
-                          ? "No interactions recorded yet for this selected product."
-                          : "No product interactions recorded yet. Browse products, click Add to Cart, or place an order to see live charts."}
-                      </div>
-                    ) : (
-                      (() => {
-                        const maxMetricVal = Math.max(
-                          ...pixelProductInsights.rows.flatMap((r) =>
-                            chartMetricTab === "VIEWS"
-                              ? [r.views]
-                              : chartMetricTab === "CLICKS"
-                              ? [r.clicks]
-                              : chartMetricTab === "PURCHASES"
-                              ? [r.purchases]
-                              : [r.views, r.clicks, r.purchases]
-                          ),
-                          1
+                  {/* Chart Content Area */}
+                  <div className="bg-neutral-50/70 rounded-2xl p-4 border border-neutral-200/80">
+                    {(() => {
+                      const allRows = pixelProductInsights.allRows || pixelProductInsights.rows || [];
+                      const totals = pixelProductInsights.totals || { views: 0, clicks: 0, purchases: 0, revenue: 0 };
+                      const hasAnyData = totals.views + totals.clicks + totals.purchases > 0;
+
+                      if (allRows.length === 0 || !hasAnyData) {
+                        return (
+                          <div className="py-10 text-center text-xs text-neutral-400">
+                            {targetScope === "PRODUCT"
+                              ? "No interactions recorded yet for this selected product."
+                              : "No product interactions recorded yet. Browse products, click Add to Cart, or place an order to see live charts."}
+                          </div>
                         );
+                      }
 
-                        return pixelProductInsights.rows.map((row) => {
-                          const viewsPct = Math.round((row.views / maxMetricVal) * 100);
-                          const clicksPct = Math.round((row.clicks / maxMetricVal) * 100);
-                          const purchasesPct = Math.round((row.purchases / maxMetricVal) * 100);
-                          const showViews = chartMetricTab === "ALL" || chartMetricTab === "VIEWS";
-                          const showClicks = chartMetricTab === "ALL" || chartMetricTab === "CLICKS";
-                          const showPurchases = chartMetricTab === "ALL" || chartMetricTab === "PURCHASES";
+                      if (chartViewMode === "pie") {
+                        const PIE_PALETTE = [
+                          "#8B5CF6",
+                          "#3B82F6",
+                          "#10B981",
+                          "#F59E0B",
+                          "#EC4899",
+                          "#06B6D4",
+                          "#6366F1",
+                          "#F97316",
+                          "#14B8A6",
+                          "#E11D48",
+                        ];
 
+                        const metricValueForRow = (row) => {
+                          if (chartMetricTab === "VIEWS") return row.views;
+                          if (chartMetricTab === "CLICKS") return row.clicks;
+                          if (chartMetricTab === "PURCHASES") return row.purchases;
+                          return row.views + row.clicks + row.purchases;
+                        };
+
+                        const productSlicesSource = allRows.filter((r) => metricValueForRow(r) > 0);
+                        const isFunnelMode =
+                          chartMetricTab === "ALL" &&
+                          (targetScope === "PRODUCT" || productSlicesSource.length <= 1);
+
+                        let rawSlices = [];
+                        if (isFunnelMode) {
+                          rawSlices = [
+                            { key: "funnel_views", label: "Views", value: totals.views, color: "#8B5CF6", sub: `${totals.views} views` },
+                            { key: "funnel_clicks", label: "Clicks & Cart", value: totals.clicks, color: "#3B82F6", sub: `${totals.clicks} clicks` },
+                            { key: "funnel_purchases", label: "Purchased", value: totals.purchases, color: "#10B981", sub: totals.revenue > 0 ? `${totals.purchases} sold (${formatBDT(totals.revenue)})` : `${totals.purchases} sold` },
+                          ].filter((s) => s.value > 0);
+                        } else {
+                          rawSlices = productSlicesSource.map((r, i) => ({
+                            key: r.key,
+                            label: r.productName,
+                            value: metricValueForRow(r),
+                            color: PIE_PALETTE[i % PIE_PALETTE.length],
+                            sub:
+                              chartMetricTab === "VIEWS"
+                                ? `${r.views} views`
+                                : chartMetricTab === "CLICKS"
+                                ? `${r.clicks} clicks`
+                                : chartMetricTab === "PURCHASES"
+                                ? `${r.purchases} sold${r.revenue > 0 ? ` (${formatBDT(r.revenue)})` : ""}`
+                                : `${r.views}v • ${r.clicks}c • ${r.purchases}p`,
+                          }));
+                        }
+
+                        const totalPieVal = rawSlices.reduce((s, item) => s + item.value, 0);
+                        if (totalPieVal === 0) {
                           return (
-                            <div key={row.key} className="space-y-1">
-                              <div className="flex items-center justify-between text-[11px] gap-2">
-                                <span className="font-bold text-neutral-900 truncate" title={row.productName}>
-                                  {row.productName}
-                                </span>
-                                <span className="text-[10px] font-mono text-neutral-500 shrink-0">
-                                  {`${row.views}v • ${row.clicks}c • ${row.purchases}p${
-                                    row.revenue > 0 ? ` (${formatBDT(row.revenue)})` : ""
-                                  }`}
-                                </span>
-                              </div>
-                              <div className="space-y-1">
-                                {showViews && (
-                                  <div className="h-1.5 w-full bg-white rounded-full overflow-hidden border border-neutral-200/60">
-                                    <div
-                                      className="h-full bg-purple-500 rounded-full transition-all duration-300"
-                                      style={{ width: `${row.views > 0 ? Math.max(4, viewsPct) : 0}%` }}
-                                      title={`Views: ${row.views}`}
-                                    />
-                                  </div>
-                                )}
-                                {showClicks && (
-                                  <div className="h-1.5 w-full bg-white rounded-full overflow-hidden border border-neutral-200/60">
-                                    <div
-                                      className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                                      style={{ width: `${row.clicks > 0 ? Math.max(4, clicksPct) : 0}%` }}
-                                      title={`Clicks: ${row.clicks}`}
-                                    />
-                                  </div>
-                                )}
-                                {showPurchases && (
-                                  <div className="h-1.5 w-full bg-white rounded-full overflow-hidden border border-neutral-200/60">
-                                    <div
-                                      className="h-full bg-emerald-500 rounded-full transition-all duration-300"
-                                      style={{ width: `${row.purchases > 0 ? Math.max(4, purchasesPct) : 0}%` }}
-                                      title={`Purchased: ${row.purchases}`}
-                                    />
-                                  </div>
-                                )}
-                              </div>
+                            <div className="py-10 text-center text-xs text-neutral-400">
+                              {"No data recorded yet for the selected metric filter."}
                             </div>
                           );
+                        }
+
+                        const radius = 62;
+                        const circumference = 2 * Math.PI * radius;
+                        let offsetAcc = 0;
+                        const computedSlices = rawSlices.map((s) => {
+                          const pct = (s.value / totalPieVal) * 100;
+                          const dashLen = (s.value / totalPieVal) * circumference;
+                          const currentOffset = offsetAcc;
+                          offsetAcc += dashLen;
+                          return {
+                            ...s,
+                            pct,
+                            dashLen,
+                            dashOffset: -currentOffset,
+                          };
                         });
-                      })()
-                    )}
+
+                        const activeSlice = computedSlices.find((s) => s.key === hoveredPieKey) || null;
+                        const metricHeading =
+                          isFunnelMode
+                            ? "Event Funnel"
+                            : chartMetricTab === "VIEWS"
+                            ? "Total Views"
+                            : chartMetricTab === "CLICKS"
+                            ? "Total Clicks"
+                            : chartMetricTab === "PURCHASES"
+                            ? "Units Sold"
+                            : "Interactions";
+
+                        return (
+                          <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-start">
+                            {/* Left Column: Pie Chart at top + Views / Clicks / Purchased directly underneath */}
+                            <div className="sm:col-span-5 flex flex-col items-center justify-start gap-3">
+                              <div className="relative w-44 h-44">
+                                <svg viewBox="0 0 180 180" className="w-full h-full -rotate-90 overflow-visible">
+                                  <circle
+                                    cx="90"
+                                    cy="90"
+                                    r={radius}
+                                    fill="transparent"
+                                    stroke="#E5E7EB"
+                                    strokeWidth="30"
+                                  />
+                                  {computedSlices.map((slice) => {
+                                    const isHovered = hoveredPieKey === slice.key;
+                                    const isDimmed = Boolean(hoveredPieKey && !isHovered);
+                                    return (
+                                      <circle
+                                        key={slice.key}
+                                        cx="90"
+                                        cy="90"
+                                        r={radius}
+                                        fill="transparent"
+                                        stroke={slice.color}
+                                        strokeWidth={isHovered ? 36 : 30}
+                                        strokeDasharray={`${slice.dashLen} ${circumference}`}
+                                        strokeDashoffset={slice.dashOffset}
+                                        style={{ opacity: isDimmed ? 0.35 : 1 }}
+                                        className="transition-all duration-300 cursor-pointer"
+                                        onMouseEnter={() => setHoveredPieKey(slice.key)}
+                                        onMouseLeave={() => setHoveredPieKey(null)}
+                                      />
+                                    );
+                                  })}
+                                </svg>
+                                <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none px-5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 truncate max-w-[90px]">
+                                    {activeSlice ? activeSlice.label : metricHeading}
+                                  </span>
+                                  <span className="text-lg font-black text-neutral-900 leading-tight mt-0.5">
+                                    {activeSlice ? `${activeSlice.pct.toFixed(1)}%` : totalPieVal.toLocaleString()}
+                                  </span>
+                                  <span className="text-[10px] font-semibold text-emerald-700 truncate max-w-[95px]">
+                                    {activeSlice
+                                      ? `${activeSlice.value.toLocaleString()} count`
+                                      : chartMetricTab === "PURCHASES" && totals.revenue > 0
+                                        ? formatBDT(totals.revenue)
+                                        : isFunnelMode
+                                          ? "100% Live"
+                                          : `${computedSlices.length} Products`}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Views, Clicks, Purchased directly below the Pie Chart */}
+                              <div className="w-full grid grid-cols-3 gap-1.5 text-[10px]">
+                                <div className="bg-white rounded-xl px-2 py-1.5 border border-neutral-200/80 text-center">
+                                  <span className="block font-bold text-purple-700 leading-tight">{"Views"}</span>
+                                  <span className="block font-mono font-black text-neutral-900 text-xs mt-0.5">
+                                    {totals.views}
+                                  </span>
+                                </div>
+                                <div className="bg-white rounded-xl px-2 py-1.5 border border-neutral-200/80 text-center">
+                                  <span className="block font-bold text-blue-700 leading-tight">{"Clicks"}</span>
+                                  <span className="block font-mono font-black text-neutral-900 text-xs mt-0.5">
+                                    {totals.clicks}
+                                  </span>
+                                </div>
+                                <div className="bg-white rounded-xl px-2 py-1.5 border border-neutral-200/80 text-center">
+                                  <span className="block font-bold text-emerald-700 leading-tight">{"Purchased"}</span>
+                                  <span className="block font-mono font-black text-neutral-900 text-xs mt-0.5">
+                                    {totals.purchases}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Right Column: Interactive Pie Legend (Shows 5 items cleanly, scrolls on 6+) */}
+                            <div className="sm:col-span-7 space-y-1.5 max-h-[268px] overflow-y-auto pr-1">
+                              {computedSlices.map((slice) => {
+                                const isHovered = hoveredPieKey === slice.key;
+                                return (
+                                  <div
+                                    key={slice.key}
+                                    onMouseEnter={() => setHoveredPieKey(slice.key)}
+                                    onMouseLeave={() => setHoveredPieKey(null)}
+                                    className={`flex items-center justify-between gap-2 p-2 rounded-xl border transition-all cursor-pointer ${
+                                      isHovered
+                                        ? "bg-white border-neutral-300 shadow-2xs"
+                                        : "bg-white/70 border-neutral-200/70 hover:bg-white"
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                      <span
+                                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                                        style={{ backgroundColor: slice.color }}
+                                      />
+                                      <div className="min-w-0">
+                                        <div className="text-[11px] font-bold text-neutral-900 truncate" title={slice.label}>
+                                          {slice.label}
+                                        </div>
+                                        <div className="text-[10px] text-neutral-500 font-mono truncate">
+                                          {slice.sub}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      <span className="text-xs font-black text-neutral-900 block">
+                                        {`${slice.pct.toFixed(1)}%`}
+                                      </span>
+                                      <span className="text-[10px] font-mono text-neutral-400">
+                                        {slice.value.toLocaleString()}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      /* Grouped Vertical Column Bar Chart Mode */
+                      const barRows = pixelProductInsights.allRows || pixelProductInsights.rows || [];
+                      const maxMetricVal = Math.max(
+                        ...barRows.flatMap((r) =>
+                          chartMetricTab === "VIEWS"
+                            ? [r.views]
+                            : chartMetricTab === "CLICKS"
+                            ? [r.clicks]
+                            : chartMetricTab === "PURCHASES"
+                            ? [r.purchases]
+                            : [r.views, r.clicks, r.purchases]
+                        ),
+                        1
+                      );
+                      const midVal = Math.round(maxMetricVal / 2);
+                      const showViews = chartMetricTab === "ALL" || chartMetricTab === "VIEWS";
+                      const showClicks = chartMetricTab === "ALL" || chartMetricTab === "CLICKS";
+                      const showPurchases = chartMetricTab === "ALL" || chartMetricTab === "PURCHASES";
+
+                      return (
+                        <div className="space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-semibold text-neutral-600">
+                            <span className="text-neutral-500">
+                              {`Top ${barRows.length} Product(s) • Vertical Column Comparison`}
+                            </span>
+                            <div className="flex items-center gap-2.5">
+                              {showViews && (
+                                <span className="flex items-center gap-1">
+                                  <span className="w-2 h-2 rounded-xs bg-purple-500 inline-block" />
+                                  {"Views"}
+                                </span>
+                              )}
+                              {showClicks && (
+                                <span className="flex items-center gap-1">
+                                  <span className="w-2 h-2 rounded-xs bg-blue-500 inline-block" />
+                                  {"Clicks"}
+                                </span>
+                              )}
+                              {showPurchases && (
+                                <span className="flex items-center gap-1">
+                                  <span className="w-2 h-2 rounded-xs bg-emerald-500 inline-block" />
+                                  {"Purchased"}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Vertical Bar Stage with Y-Axis & X-Axis */}
+                          <div className="overflow-x-auto pb-1">
+                            <div className="min-w-[360px] flex gap-2">
+                              {/* Y-Axis Scale */}
+                              <div className="w-7 h-48 flex flex-col justify-between items-end pr-1.5 pb-1 text-[9px] font-mono text-neutral-400 shrink-0 select-none">
+                                <span>{maxMetricVal}</span>
+                                <span>{midVal}</span>
+                                <span>0</span>
+                              </div>
+
+                              {/* Plot Canvas */}
+                              <div className="flex-1 flex flex-col">
+                                <div className="relative h-48 border-l border-b border-neutral-300 bg-white/60 rounded-tr-xl px-3 pt-5 flex items-end justify-around gap-3">
+                                  {/* Horizontal Dashed Gridlines */}
+                                  <div className="absolute inset-x-0 top-5 border-t border-dashed border-neutral-200 pointer-events-none" />
+                                  <div className="absolute inset-x-0 top-1/2 border-t border-dashed border-neutral-200 pointer-events-none" />
+
+                                  {barRows.map((row) => {
+                                    const viewsPct = Math.round((row.views / maxMetricVal) * 100);
+                                    const clicksPct = Math.round((row.clicks / maxMetricVal) * 100);
+                                    const purchasesPct = Math.round((row.purchases / maxMetricVal) * 100);
+
+                                    const bars = [];
+                                    if (showViews) {
+                                      bars.push({
+                                        k: "v",
+                                        val: row.views,
+                                        pct: row.views > 0 ? Math.max(6, viewsPct) : 0,
+                                        cls: "bg-purple-500 hover:bg-purple-600",
+                                        label: "Views",
+                                      });
+                                    }
+                                    if (showClicks) {
+                                      bars.push({
+                                        k: "c",
+                                        val: row.clicks,
+                                        pct: row.clicks > 0 ? Math.max(6, clicksPct) : 0,
+                                        cls: "bg-blue-500 hover:bg-blue-600",
+                                        label: "Clicks",
+                                      });
+                                    }
+                                    if (showPurchases) {
+                                      bars.push({
+                                        k: "p",
+                                        val: row.purchases,
+                                        pct: row.purchases > 0 ? Math.max(6, purchasesPct) : 0,
+                                        cls: "bg-emerald-500 hover:bg-emerald-600",
+                                        label: "Purchased",
+                                      });
+                                    }
+
+                                    return (
+                                      <div
+                                        key={row.key}
+                                        className="flex-1 min-w-[46px] max-w-[92px] h-full flex items-end justify-center gap-1 z-10"
+                                        title={`${row.productName}: ${row.views} Views, ${row.clicks} Clicks, ${row.purchases} Purchased${row.revenue > 0 ? ` (${formatBDT(row.revenue)})` : ""}`}
+                                      >
+                                        {bars.map((b) => (
+                                          <div
+                                            key={b.k}
+                                            className="flex-1 max-w-[18px] h-full flex flex-col justify-end items-center group"
+                                          >
+                                            {b.val > 0 && (
+                                              <span className="text-[9px] font-mono font-bold text-neutral-600 mb-0.5 leading-none">
+                                                {b.val}
+                                              </span>
+                                            )}
+                                            <div
+                                              className={`w-full rounded-t-md transition-all duration-300 ${b.cls}`}
+                                              style={{ height: `${b.pct}%` }}
+                                              title={`${row.productName} • ${b.label}: ${b.val}`}
+                                            />
+                                          </div>
+                                        ))}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                {/* X-Axis Product Labels */}
+                                <div className="px-3 pt-2 flex items-start justify-around gap-3">
+                                  {barRows.map((row) => (
+                                    <div
+                                      key={`${row.key}-lbl`}
+                                      className="flex-1 min-w-[46px] max-w-[92px] text-center"
+                                    >
+                                      <span
+                                        className="block text-[10px] font-bold text-neutral-800 truncate"
+                                        title={row.productName}
+                                      >
+                                        {row.productName}
+                                      </span>
+                                      {row.revenue > 0 && (
+                                        <span className="block text-[9px] font-mono text-emerald-700 font-semibold truncate">
+                                          {formatBDT(row.revenue)}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </>
               )}

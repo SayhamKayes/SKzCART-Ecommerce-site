@@ -31,6 +31,7 @@ import { DEFAULT_PAYMENT_METHODS, formatAccountTypeLabel } from "../../utils/pay
 import { DEFAULT_PRODUCT_PLACEHOLDER, handleProductImageError } from "../../utils/productImage";
 import { apiClient } from "../../services/api";
 import { marketingTracker } from "../../services/marketing";
+import { realtimeService } from "../../services/realtime";
 import { useThemeConfig } from "../frontPanel/FrontPanelContext";
 import { Campaign_Header, Product_Header } from "../Header";
 import { Footer } from "../Footer";
@@ -197,7 +198,11 @@ export function CampaignLandingPage({
 
   const [qty, setQty] = useState(1);
   const [district, setDistrict] = useState(currentUser?.district || "Dhaka");
-  const [thana, setThana] = useState(currentUser?.thana || "Dhanmondi");
+  const [thana, setThana] = useState(() => {
+    if (currentUser?.thana) return currentUser.thana;
+    const list = getThanasForDistrict(currentUser?.district || "Dhaka");
+    return list[0] || "";
+  });
   const [countryCode, setCountryCode] = useState("+880");
   const [phone, setPhone] = useState(currentUser?.phone || "");
   const [email, setEmail] = useState(currentUser?.email || "");
@@ -247,7 +252,7 @@ export function CampaignLandingPage({
     const code = couponCodeInput.trim().toUpperCase();
     const found = availableCoupons.find((c) => c.code.toUpperCase() === code && c.isActive);
     if (!found) {
-      setCouponError("Invalid coupon code! (Try: WELCOME50 or EID100)");
+      setCouponError("Invalid or expired coupon code.");
       return;
     }
     if (subtotal < found.minSpend) {
@@ -336,12 +341,24 @@ export function CampaignLandingPage({
 
   useEffect(() => {
     let isMounted = true;
-    apiClient.getPaymentMethods().then((methods) => {
-      if (isMounted && Array.isArray(methods) && methods.length > 0) {
-        setPaymentConfigs(methods);
+    const loadMethods = () => {
+      apiClient.getPaymentMethods().then((methods) => {
+        if (isMounted && Array.isArray(methods) && methods.length > 0) {
+          setPaymentConfigs(methods);
+        }
+      }).catch(() => { });
+    };
+    loadMethods();
+    const unsubscribe = realtimeService.subscribe((msg) => {
+      const type = typeof msg === "string" ? msg : msg?.type;
+      if (type === "PAYMENT_METHODS_UPDATED" || type === "PAYMENT_CONFIG_UPDATED") {
+        loadMethods();
       }
-    }).catch(() => { });
-    return () => { isMounted = false; };
+    });
+    return () => {
+      isMounted = false;
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
   }, []);
 
   const isMethodActive = (methodKey) => {
@@ -356,7 +373,10 @@ export function CampaignLandingPage({
   };
 
   const activeManualMethods = useMemo(() => {
-    return ['bkash', 'nagad', 'rocket'].filter((m) => isMethodActive(m));
+    return ['bkash', 'nagad', 'rocket'].filter((m) => {
+      const cfg = getMethodConfig(m);
+      return isMethodActive(m) && Boolean(String(cfg?.number || '').trim());
+    });
   }, [paymentConfigs]);
 
   const [activeFaq, setActiveFaq] = useState(0);
@@ -390,6 +410,8 @@ export function CampaignLandingPage({
   useEffect(() => {
     if (product?.id && lastTrackedCampaignViewRef.current !== product.id) {
       lastTrackedCampaignViewRef.current = product.id;
+      const viewSource = isCampaign ? "Campaign Page" : "Product Page";
+      const viewCampaign = isCampaign ? (product.slug || "") : "";
       addEvent("ViewContent", `Viewing: ${displayName}`, `SKU: ${product.sku || product.id} | ৳${currentPrice}`);
       marketingTracker.track(
         "ViewContent",
@@ -398,13 +420,13 @@ export function CampaignLandingPage({
           name: displayName,
           value: currentPrice,
           currency: "BDT",
-          source: "campaign_landing",
-          campaign: product.slug || "",
+          source: viewSource,
+          campaign: viewCampaign,
         },
-        { productId: product.id, campaign: product.slug || "" }
+        { productId: product.id, campaign: viewCampaign }
       );
     }
-  }, [product?.id]);
+  }, [product?.id, isCampaign]);
 
   // Zoom state on desktop
   const [zoomStyle, setZoomStyle] = useState({
@@ -711,14 +733,16 @@ export function CampaignLandingPage({
       const createdOrder = result.order;
 
       addEvent("Purchase", `Order confirmed ${createdOrder.id}`, `${displayName} × ${qty} | ৳${total} (${effectiveMethod})`);
+      const purchaseSource = isCampaign ? "Campaign Page" : "Product Page";
+      const purchaseCampaign = isCampaign ? (product?.slug || "") : "";
       marketingTracker.track("Purchase", {
         orderId: createdOrder.id,
         value: total,
         productId: product?.id || "",
         productName: displayName,
         name: displayName,
-        source: "campaign_landing",
-        campaign: product?.slug || "",
+        source: purchaseSource,
+        campaign: purchaseCampaign,
         items: [{ id: product?.id, name: displayName, quantity: qty, price: currentPrice }],
       });
 
@@ -2314,18 +2338,6 @@ export function CampaignLandingPage({
                             {formatAccountTypeLabel(getMethodConfig(selectedPayment)?.account_type, isEnglish)}
                           </span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const prefix = selectedPayment === "bkash" ? "BK" : selectedPayment === "nagad" ? "NG" : "RK";
-                            setPaymentTrxId(prefix + Date.now().toString(36).toUpperCase());
-                            setSenderWallet(phone || "01712345678");
-                            if (trxError) setTrxError("");
-                          }}
-                          className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors cursor-pointer"
-                        >
-                          ⚡ Test Auto-Fill TrxID
-                        </button>
                       </div>
 
                       <div className="bg-neutral-800/80 p-3 rounded-xl space-y-1.5 text-[11px] text-neutral-300">
@@ -2336,12 +2348,7 @@ export function CampaignLandingPage({
                               : "Merchant Number:"}
                           </span>
                           <span className="font-mono font-bold text-emerald-400 text-xs tracking-wider">
-                            {getMethodConfig(selectedPayment)?.number ||
-                              (selectedPayment === "bkash"
-                                ? "01892-019281"
-                                : selectedPayment === "nagad"
-                                  ? "01918-293810"
-                                  : "01712-345678")}
+                            {getMethodConfig(selectedPayment)?.number || "Configured in Admin"}
                           </span>
                         </div>
 
@@ -2471,7 +2478,10 @@ export function CampaignLandingPage({
                       <div className="flex gap-2">
                         <input
                           type="text"
-                          placeholder={"Promo code (e.g. WELCOME50)"}
+                          placeholder={(() => {
+                            const activeSample = (availableCoupons || []).find((c) => c && c.isActive && c.code);
+                            return activeSample ? `Promo code (e.g. ${activeSample.code})` : "Enter promo code";
+                          })()}
                           value={couponCodeInput}
                           onChange={(e) => {
                             setCouponCodeInput(e.target.value);

@@ -28,7 +28,8 @@ import {
   ShieldCheck,
   TrendingUp,
   UserCheck,
-  Receipt
+  Receipt,
+  LineChart
 } from "lucide-react";
 import { useThemeConfig } from "../frontPanel/FrontPanelContext";
 
@@ -50,6 +51,7 @@ export const ROLE_PERMISSIONS = {
     "couriers",
     "payments",
     "marketing",
+    "googleAnalytics",
     "adCampaigns",
     "notifications",
     "audit",
@@ -66,6 +68,7 @@ export const ROLE_PERMISSIONS = {
     "products",
     "campaignProducts",
     "couriers",
+    "googleAnalytics",
     "notifications",
     "recycleBin"
   ],
@@ -160,7 +163,8 @@ const AdminSidebar = ({
       icon: Megaphone,
       items: [
         { id: "campaignProducts", label: "Special Campaign Products", icon: Zap },
-        { id: "marketing", label: "Marketing & CAPI", icon: BarChart3 },
+        { id: "marketing", label: "Meta Pixel & CAPI", icon: BarChart3 },
+        { id: "googleAnalytics", label: "Google Analytics", icon: LineChart },
         { id: "adCampaigns", label: "Ads Campaigns", icon: Megaphone },
         { id: "leads", label: "Lead Generation", icon: UserCheck }
       ]

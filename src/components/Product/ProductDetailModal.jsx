@@ -18,6 +18,7 @@ import { formatBDT, toBengaliNumber } from '../../utils/bangladesh';
 import { getProductTagInfo, hasLimitedOfferBadge } from '../../utils/productTags';
 import { useLanguage } from '../../Context/LanguageContext';
 import { useThemeConfig } from '../frontPanel/FrontPanelContext';
+import { getProductCampaignInfo } from '../../utils/campaignHelper';
 import { marketingTracker } from '../../services/marketing';
 import { StandardProductView, VariableProductView } from './productTypes';
 import { sanitizeText } from '../../utils/textSanitizer';
@@ -169,14 +170,18 @@ const ProductDetailModal = ({
   useEffect(() => {
     if (product?.id && lastTrackedViewProdIdRef.current !== product.id) {
       lastTrackedViewProdIdRef.current = product.id;
+      const isProdCampaign = Boolean(getProductCampaignInfo(product, themeConfig)?.isCampaign);
       marketingTracker.track('ViewContent', {
         productId: product.id,
         name: product.name,
         value: product.price,
         currency: 'BDT',
         category: product.category,
+        source: isProdCampaign ? 'Campaign Page' : 'Product Page',
+        campaign: isProdCampaign ? (product.slug || '') : '',
       }, {
-        productId: product.id
+        productId: product.id,
+        campaign: isProdCampaign ? (product.slug || '') : '',
       });
     }
   }, [product?.id]);

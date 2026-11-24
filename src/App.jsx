@@ -86,41 +86,42 @@ export default function App() {
     }
   }, []);
 
+  // Track storefront Page Views & Session Engagement Duration for Google Analytics dynamically
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    if (['admin', 'front-panel'].includes(currentView)) return undefined;
 
-  // Core Data States - Pure Backend First (Cached in localStorage for instant rendering without mock data)
-  const [products, setProducts] = useState(() => {
-    try {
-      const cached = localStorage.getItem('amardokan_cached_products');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    const path = `${window.location.pathname || '/'}${window.location.search || ''}`;
+    marketingTracker.trackPageView(path, document.title);
+
+    const intervalId = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        marketingTracker.sendDurationPing(false);
       }
-    } catch {}
-    return [];
-  });
+    }, 25000);
+
+    const onVisibilityOrHide = () => {
+      if (document.visibilityState === 'hidden') {
+        marketingTracker.sendDurationPing(true);
+      }
+    };
+    window.addEventListener('pagehide', onVisibilityOrHide);
+    document.addEventListener('visibilitychange', onVisibilityOrHide);
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener('pagehide', onVisibilityOrHide);
+      document.removeEventListener('visibilitychange', onVisibilityOrHide);
+    };
+  }, [currentView]);
+
+
+  // Core Data States - Pure Central Backend Database (no stale localStorage cache)
+  const [products, setProducts] = useState([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
 
-  const [orders, setOrders] = useState(() => {
-    try {
-      const cached = localStorage.getItem('amardokan_cached_orders');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {}
-    return [];
-  });
+  const [orders, setOrders] = useState([]);
 
-  const [coupons, setCoupons] = useState(() => {
-    try {
-      const cached = localStorage.getItem('amardokan_cached_coupons');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {}
-    return [];
-  });
+  const [coupons, setCoupons] = useState([]);
 
   const [landingPages, setLandingPages] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
@@ -395,9 +396,6 @@ export default function App() {
         if (str !== lastProdsJsonRef.current) {
           lastProdsJsonRef.current = str;
           setProducts(cleanProds);
-          try {
-            localStorage.setItem('amardokan_cached_products', str);
-          } catch {}
         }
       }
 
@@ -406,9 +404,6 @@ export default function App() {
         if (str !== lastOrdersJsonRef.current) {
           lastOrdersJsonRef.current = str;
           setOrders(ordersRes);
-          try {
-            localStorage.setItem('amardokan_cached_orders', str);
-          } catch {}
         }
       }
 
@@ -417,9 +412,6 @@ export default function App() {
         if (str !== lastCouponsJsonRef.current) {
           lastCouponsJsonRef.current = str;
           setCoupons(couponsRes);
-          try {
-            localStorage.setItem('amardokan_cached_coupons', str);
-          } catch {}
         }
       }
 
@@ -786,13 +778,15 @@ export default function App() {
             handleQuickBuy={handleQuickBuy}
             setSelectedProduct={(product) => {
               if (product?.id) {
+                const isProdCampaign = Boolean(getProductCampaignInfo(product, themeConfig)?.isCampaign);
                 marketingTracker.track(
                   'ProductClick',
                   {
                     productId: product.id,
                     name: product.name,
                     value: product.price,
-                    source: 'storefront_card',
+                    source: isProdCampaign ? 'Campaign Page' : 'Product Page',
+                    campaign: isProdCampaign ? (product.slug || '') : '',
                   },
                   { productId: product.id }
                 );

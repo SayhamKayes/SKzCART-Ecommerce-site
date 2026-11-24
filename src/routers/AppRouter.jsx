@@ -35,6 +35,7 @@ const AdminStaffManagement = lazy(() => import('../components/admin/AdminStaffMa
 const AdminRecycleBin = lazy(() => import('../components/admin/AdminRecycleBin').then(m => ({ default: m.AdminRecycleBin || m.default })));
 const AdminProductEditorial = lazy(() => import('../components/admin/AdminProductEditorial').then(m => ({ default: m.AdminProductEditorial || m.default })));
 const AdminAnalytics = lazy(() => import('../components/admin/AdminAnalytics').then(m => ({ default: m.AdminAnalytics || m.default })));
+const AdminGoogleAnalytics = lazy(() => import('../components/admin/AdminGoogleAnalytics').then(m => ({ default: m.AdminGoogleAnalytics || m.default })));
 const AdminLeads = lazy(() => import('../components/admin/AdminLeads').then(m => ({ default: m.AdminLeads || m.default })));
 const AdminInvoiceGenerator = lazy(() => import('../components/admin/AdminInvoiceGenerator').then(m => ({ default: m.AdminInvoiceGenerator || m.default })));
 
@@ -532,6 +533,7 @@ export const AppRouter = ({
             </AdminTabErrorBoundary>
           )}
           {adminTab === 'analytics' && <AdminAnalytics orders={orders} products={products} />}
+          {adminTab === 'googleAnalytics' && <AdminGoogleAnalytics orders={orders} products={products} />}
           {adminTab === 'invoiceGenerator' && (
             <AdminInvoiceGenerator orders={orders} products={products} />
           )}
