@@ -513,25 +513,65 @@ export const apiClient = {
   },
 
   async simulateCourierWebhook(payload) {
-    const endpoint = payload.provider === 'steadfast' 
-      ? '/api/v1/webhooks/couriers/steadfast'
+    const prov = String(payload?.provider || '').trim().toLowerCase();
+    const endpoint = prov
+      ? `/api/v1/webhooks/couriers/${encodeURIComponent(prov)}`
       : '/api/v1/webhooks/couriers';
+    const rawEvent = payload.event || payload.eventStatus || 'delivered';
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        provider: payload.provider,
+        isSimulated: true,
+        provider: prov,
         invoice: payload.orderId,
         order_id: payload.orderId,
-        tracking_code: payload.tracking_id || payload.orderId || 'TRK-DEFAULT',
-        tracking_id: payload.tracking_id || payload.orderId || 'TRK-DEFAULT',
-        status: payload.event || payload.eventStatus || 'delivered',
-        event: payload.event || payload.eventStatus || 'delivered',
+        tracking_code: payload.tracking_id || payload.orderId || '',
+        tracking_id: payload.tracking_id || payload.orderId || '',
+        status: rawEvent,
+        event: rawEvent,
+        order_status: rawEvent,
+        parcel_status: rawEvent,
         collected_amount: payload.collected_amount,
         hub: payload.hub,
       }),
     });
     return res.json();
+  },
+
+  async setCourierMode(payload) {
+    try {
+      const res = await apiFetch('/api/v1/couriers/mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {}),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async getCourierControls() {
+    try {
+      const res = await apiFetch('/api/v1/couriers/controls');
+      return await res.json();
+    } catch (err) {
+      return { success: false, controls: { webhookSimulatorEnabled: false }, message: err.message };
+    }
+  },
+
+  async updateCourierControls(payload) {
+    try {
+      const res = await apiFetch('/api/v1/couriers/controls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {}),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
   },
 
   async getCourierBalance(provider) {
@@ -1196,49 +1236,17 @@ export const apiClient = {
     }
   },
 
-  async getNotifications() {
-    try {
-      const res = await fetch('/api/v1/notifications');
-      if (!res.ok) throw new Error('Failed to fetch notifications');
-      const data = await res.json();
-      return data.notifications || [];
-    } catch (err) {
-      console.warn('getNotifications error:', err);
-      return [];
-    }
-  },
-
-  async sendNotification(payload) {
-    try {
-      const res = await fetch('/api/v1/notifications', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      return await res.json();
-    } catch (err) {
-      return { success: false, message: err.message };
-    }
-  },
-
   async getStaffMembers() {
     try {
       const res = await fetch('/api/v1/staff');
       if (!res.ok) throw new Error('Failed to fetch staff members');
       const data = await res.json();
       if (Array.isArray(data.staff)) {
-        try {
-          localStorage.setItem('amardokan_cached_staff', JSON.stringify(data.staff));
-        } catch {}
         return data.staff;
       }
       return [];
     } catch (err) {
-      console.warn('getStaffMembers error, reading local cache:', err);
-      try {
-        const cached = localStorage.getItem('amardokan_cached_staff');
-        if (cached) return JSON.parse(cached);
-      } catch {}
+      console.warn('getStaffMembers error:', err);
       return [];
     }
   },
@@ -1309,11 +1317,12 @@ export const apiClient = {
     }
   },
 
-  async verifyStaffToken(token) {
+  async verifyStaffToken(token, portal = '') {
     try {
       const t = token || (typeof window !== 'undefined' ? (sessionStorage.getItem('amardokan_staff_token') || localStorage.getItem('amardokan_staff_token')) : '');
       if (!t) return { success: false, authenticated: false };
-      const res = await apiFetch('/api/v1/staff-auth/verify', {
+      const q = portal ? `?portal=${encodeURIComponent(portal)}` : '';
+      const res = await apiFetch(`/api/v1/staff-auth/verify${q}`, {
         headers: { Authorization: `Bearer ${t}` },
       });
       return await res.json();
@@ -1336,8 +1345,12 @@ export const apiClient = {
       const data = await res.json();
       if (data && data.success && data.token && typeof window !== 'undefined') {
         try {
-          sessionStorage.setItem('amardokan_staff_token', data.token);
-          localStorage.setItem('amardokan_staff_token', data.token);
+          if (payload.portal === 'front_panel') {
+            sessionStorage.setItem('amardokan_front_token', data.token);
+          } else {
+            sessionStorage.setItem('amardokan_staff_token', data.token);
+            localStorage.setItem('amardokan_staff_token', data.token);
+          }
         } catch (e) {}
       }
       return data;
@@ -1356,13 +1369,69 @@ export const apiClient = {
       const data = await res.json();
       if (data && data.success && data.token && typeof window !== 'undefined') {
         try {
-          sessionStorage.setItem('amardokan_staff_token', data.token);
-          localStorage.setItem('amardokan_staff_token', data.token);
+          if (payload?.portal === 'front_panel') {
+            sessionStorage.setItem('amardokan_front_token', data.token);
+          } else {
+            sessionStorage.setItem('amardokan_staff_token', data.token);
+            localStorage.setItem('amardokan_staff_token', data.token);
+          }
         } catch (e) {}
       }
       return data;
     } catch (err) {
       return { success: false, message: err.message || '2FA verification failed' };
+    }
+  },
+
+  async getPortalAccessConfig() {
+    try {
+      const res = await apiFetch('/api/v1/security/portal-access');
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message || 'Failed to fetch portal access configuration' };
+    }
+  },
+
+  async updatePortalAccessConfig(payload) {
+    try {
+      const res = await apiFetch('/api/v1/security/portal-access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message || 'Failed to update portal access settings' };
+    }
+  },
+
+  async getCourierRiders() {
+    try {
+      const res = await apiFetch('/api/v1/courier-auth/riders');
+      return await res.json();
+    } catch (err) {
+      return { success: false, riders: [], message: err.message || 'Failed to load riders' };
+    }
+  },
+
+  async courierRiderLogin(payload) {
+    try {
+      const res = await apiFetch('/api/v1/courier-auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {}),
+      });
+      const data = await res.json();
+      if (data && data.success && data.token && typeof window !== 'undefined') {
+        try {
+          sessionStorage.setItem('amardokan_rider_token', data.token);
+          sessionStorage.setItem('amardokan_rider_user', JSON.stringify(data.rider || {}));
+          sessionStorage.setItem('amardokan_rider_auth', 'true');
+        } catch (e) {}
+      }
+      return data;
+    } catch (err) {
+      return { success: false, networkError: true, message: err.message || 'Network error during rider login' };
     }
   },
 
@@ -1539,6 +1608,114 @@ export const apiClient = {
       return await res.json();
     } catch (err) {
       return { success: false, message: err.message || 'Failed to permanently delete items' };
+    }
+  },
+
+  async getSystemBlueprint() {
+    try {
+      const res = await apiFetch('/api/v1/system/blueprint');
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message || 'Failed to fetch system blueprint' };
+    }
+  },
+
+  async getStaffSetupStatus() {
+    try {
+      const res = await apiFetch('/api/v1/staff-auth/setup-status');
+      return await res.json();
+    } catch (err) {
+      return { success: false, needsSetup: false, message: err.message };
+    }
+  },
+
+  async bootstrapInitialAdmin(payload) {
+    try {
+      const res = await apiFetch('/api/v1/staff-auth/bootstrap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data && data.success && data.token && typeof window !== 'undefined') {
+        try {
+          sessionStorage.setItem('amardokan_staff_token', data.token);
+          localStorage.setItem('amardokan_staff_token', data.token);
+        } catch (e) {}
+      }
+      return data;
+    } catch (err) {
+      return { success: false, message: err.message || 'Failed to initialize Super Admin' };
+    }
+  },
+
+  // Google Analytics 4 (GA4) Config & Real-Time Visitor Telemetry
+  async getGA4Config() {
+    try {
+      const res = await apiFetch('/api/v1/analytics/ga4/config');
+      if (!res.ok) throw new Error('Failed to fetch GA4 config');
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async saveGA4Config(payload) {
+    try {
+      const res = await apiFetch('/api/v1/analytics/ga4/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message || 'Failed to save GA4 config' };
+    }
+  },
+
+  async testGA4Connection() {
+    try {
+      const res = await apiFetch('/api/v1/analytics/ga4/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message || 'GA4 diagnostic failed' };
+    }
+  },
+
+  async getGA4Dashboard(params = {}) {
+    try {
+      const qs = new URLSearchParams();
+      if (params.range) qs.set('range', params.range);
+      if (params.start) qs.set('start', params.start);
+      if (params.end) qs.set('end', params.end);
+      const res = await apiFetch(`/api/v1/analytics/ga4/dashboard?${qs.toString()}`);
+      if (!res.ok) throw new Error('Failed to fetch GA4 telemetry');
+      return await res.json();
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  },
+
+  async collectGA4Event(payload, useKeepAlive = false) {
+    try {
+      const url = '/api/v1/analytics/ga4/collect';
+      const body = JSON.stringify(payload);
+      if (useKeepAlive && typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        const blob = new Blob([body], { type: 'application/json' });
+        if (navigator.sendBeacon(url, blob)) return { success: true };
+      }
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        keepalive: Boolean(useKeepAlive),
+      });
+      return await res.json();
+    } catch {
+      return { success: false };
     }
   },
 };

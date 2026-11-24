@@ -1,11 +1,11 @@
 import { apiClient } from './api';
 
-let _cachedShopInfo = { shopName: 'AmarDokan', hotline: '09612345678', supportEmail: '' };
+let _cachedShopInfo = { shopName: 'AmarDokan', hotline: '', supportEmail: '' };
 
 export function setActiveShopInfoCache(info = {}) {
   _cachedShopInfo = {
     shopName: info.name || info.shopName || 'AmarDokan',
-    hotline: info.hotline || '09612345678',
+    hotline: info.hotline || '',
     supportEmail: info.supportEmail || '',
   };
 }

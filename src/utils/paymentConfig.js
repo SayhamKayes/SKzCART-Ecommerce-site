@@ -1,5 +1,6 @@
 // Centralized Payment Configuration & Sync Utility
 // Handles SSLCommerz, Cash on Delivery, and Manual MFS (bKash, Nagad, Rocket)
+// Phone numbers intentionally start blank so Storefront strictly uses Admin Panel DB numbers.
 
 export const DEFAULT_PAYMENT_METHODS = [
   {
@@ -27,7 +28,7 @@ export const DEFAULT_PAYMENT_METHODS = [
     name: 'bKash Manual',
     is_active: true,
     account_type: 'MERCHANT',
-    number: '01892-019281',
+    number: '',
     counter: '1',
     instructions: "Select 'Payment' in your bKash app, pay to the merchant number, and enter the TrxID below.",
     display_order: 3,
@@ -37,7 +38,7 @@ export const DEFAULT_PAYMENT_METHODS = [
     name: 'Nagad Manual',
     is_active: true,
     account_type: 'MERCHANT',
-    number: '01918-293810',
+    number: '',
     counter: '1',
     instructions: "Select 'Payment' in your Nagad app, pay to the merchant number, and enter the TrxID below.",
     display_order: 4,
@@ -47,7 +48,7 @@ export const DEFAULT_PAYMENT_METHODS = [
     name: 'Rocket Manual',
     is_active: true,
     account_type: 'MERCHANT',
-    number: '01712-345678',
+    number: '',
     counter: '1',
     instructions: "Select 'Merchant Pay' in your Rocket app, pay to the merchant number, and enter the TrxID below.",
     display_order: 5,
