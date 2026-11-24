@@ -91,36 +91,36 @@ export const AdminInvoiceGenerator = ({ orders = [], products = [] }) => {
       return buildInitialInvoiceData(sortedOrders[0], sortedOrders, themeConfig);
     }
     const firstProd = products[0];
-    const samplePrice = Number(firstProd?.price || 1250);
+    const samplePrice = Number(firstProd?.price || 0);
     return {
-      orderId: "PREVIEW-1001",
+      orderId: "PREVIEW",
       invoiceNumber: `${configDraft.invoicePrefix || "INV-"}${configDraft.invoiceStartNumber || 1001}`,
       dateText: new Date().toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }),
       customerName: "Sample Customer",
-      customerPhone: "01700000000",
-      customerEmail: "customer@example.com",
-      customerAddress: "House 12, Road 4, Dhanmondi, Dhaka",
-      district: "Dhaka",
+      customerPhone: themeConfig?.shop?.hotline || "",
+      customerEmail: themeConfig?.shop?.supportEmail || "",
+      customerAddress: themeConfig?.shop?.address || "",
+      district: "",
       orderNote: "",
       paymentMethod: "COD",
       paymentStatus: "PENDING",
       paymentTrxId: "",
-      courierProvider: "steadfast",
-      trackingId: "TRK-PREVIEW-01",
+      courierProvider: "",
+      trackingId: "",
       items: [
         {
           id: firstProd?.id || "item-preview-1",
           name: firstProd?.name || "Sample Store Product",
           variant: "",
-          sku: firstProd?.sku || "SKU-001",
+          sku: firstProd?.sku || "",
           price: samplePrice,
           quantity: 1,
         },
       ],
       subtotal: samplePrice,
-      deliveryFee: 70,
+      deliveryFee: 0,
       discount: 0,
-      total: samplePrice + 70,
+      total: samplePrice,
     };
   });
 

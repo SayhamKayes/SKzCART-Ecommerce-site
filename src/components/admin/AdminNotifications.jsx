@@ -107,7 +107,7 @@ const AdminNotifications = ({ orders = [] }) => {
   const templates = useMemo(() => buildEmailTemplates(shopName), [shopName]);
   const [selectedTemplate, setSelectedTemplate] = useState("ORDER_CONFIRMED");
   const [selectedOrderId, setSelectedOrderId] = useState("");
-  const [manualOrderId, setManualOrderId] = useState("BD-849201");
+  const [manualOrderId, setManualOrderId] = useState(orders[0]?.id || "");
   const [manualCustomerName, setManualCustomerName] = useState("Customer");
   const [manualRecipientEmail, setManualRecipientEmail] = useState("");
   const [manualSubject, setManualSubject] = useState("");
@@ -137,13 +137,13 @@ const AdminNotifications = ({ orders = [] }) => {
   // Helper to hydrate Subject & Body from selected template + order details
   const applyTemplatePreview = (tplId, orderObj = null) => {
     const tpl = templates.find((t) => t.id === tplId) || templates[0];
-    const oid = orderObj?.id || manualOrderId || "BD-849201";
+    const oid = orderObj?.id || manualOrderId || "ORDER-ID";
     const cname = orderObj?.address?.customerName || manualCustomerName || "Customer";
-    const total = orderObj?.total ?? "1,490";
-    const courier = orderObj?.courier?.provider?.toUpperCase() || "Steadfast";
+    const total = orderObj?.total ?? "0";
+    const courier = orderObj?.courier?.provider?.toUpperCase() || "Courier";
     const trackingId = orderObj?.courier?.trackingId || "N/A";
-    const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://amardokan.com";
-    const trackingUrl = `${baseUrl}/track-order?id=${oid}`;
+    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+    const trackingUrl = baseUrl ? `${baseUrl}/track-order?id=${oid}` : `/track-order?id=${oid}`;
 
     const replaceTokens = (str) =>
       String(str || "")
@@ -810,7 +810,7 @@ const AdminNotifications = ({ orders = [] }) => {
                 type="text"
                 value={manualOrderId}
                 onChange={(e) => setManualOrderId(e.target.value)}
-                placeholder="BD-849201"
+                placeholder="Enter Order ID"
                 className="w-full px-3 py-2 bg-neutral-50 rounded-xl border border-neutral-300 font-mono text-xs focus:bg-white focus:border-indigo-600 focus:outline-hidden"
               />
             </div>

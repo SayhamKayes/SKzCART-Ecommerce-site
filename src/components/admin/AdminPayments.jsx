@@ -29,16 +29,17 @@ const AdminPayments = ({ orders = [] }) => {
   const [methodsSuccessMsg, setMethodsSuccessMsg] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Gateway Config & Popup Modal state
+  // Gateway Config & Popup Modal state (hydrated strictly from Backend DB)
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
   const [gatewayConfig, setGatewayConfig] = useState({
     gateway_id: "sslcommerz",
     name: "SSLCOMMERZ Multi-Card Gateway",
-    store_id: "testbox",
-    store_password: "qwerty",
+    store_id: "",
+    store_password: "",
     is_sandbox: true,
     is_active: true,
     fee_percent: 2.0,
+    allow_sandbox_simulator: false,
   });
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [configSuccessMsg, setConfigSuccessMsg] = useState("");
@@ -185,15 +186,17 @@ const AdminPayments = ({ orders = [] }) => {
     setIsInitiatingTest(true);
     try {
       const testOrderId = orders[0]?.id || `${orderIdPrefix}-${Math.floor(100000 + Math.random() * 900000)}`;
+      const shop = themeConfig?.shop || {};
+      const sampleAddr = orders[0]?.address || {};
       const res = await apiClient.initiatePayment({
         orderId: testOrderId,
         amount: 1250,
         customerData: {
-          customerName: "Admin Test Customer",
-          phone: "01712345678",
-          email: "admin_test@customer.amardokan.com",
-          district: "Dhaka",
-          fullAddress: "AmarDokan Head Office, Dhanmondi 27",
+          customerName: sampleAddr.customerName || shop.name || "Test Customer",
+          phone: sampleAddr.phone || shop.whatsappNumber || shop.hotline || "",
+          email: sampleAddr.email || shop.supportEmail || "",
+          district: sampleAddr.district || "",
+          fullAddress: sampleAddr.fullAddress || shop.address || "",
         },
       });
 
@@ -536,11 +539,11 @@ const AdminPayments = ({ orders = [] }) => {
                     required
                     value={gatewayConfig.store_id}
                     onChange={(e) => setGatewayConfig({ ...gatewayConfig, store_id: e.target.value })}
-                    placeholder="e.g. testbox"
+                    placeholder="Enter SSLCommerz Store ID"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 font-mono text-xs outline-none focus:border-blue-600"
                   />
                   <span className="text-[10px] text-neutral-400 mt-1 block">
-                    Default sandbox ID is <code>testbox</code>
+                    Enter your official live or sandbox SSLCommerz Store ID
                   </span>
                 </div>
 
@@ -558,7 +561,7 @@ const AdminPayments = ({ orders = [] }) => {
                     className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 font-mono text-xs outline-none focus:border-blue-600"
                   />
                   <span className="text-[10px] text-neutral-400 mt-1 block">
-                    Default sandbox password is <code>qwerty</code>
+                    Stored centrally in database for gateway requests
                   </span>
                 </div>
               </div>
@@ -606,11 +609,33 @@ const AdminPayments = ({ orders = [] }) => {
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={gatewayConfig.is_sandbox}
+                    checked={Boolean(gatewayConfig.is_sandbox)}
                     onChange={(e) => setGatewayConfig({ ...gatewayConfig, is_sandbox: e.target.checked })}
                     className="sr-only peer"
                   />
                   <div className="w-11 h-6 bg-neutral-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-neutral-900 text-xs">
+                    {"Allow Local Sandbox Simulator Fallback"}
+                  </div>
+                  <div className="text-[11px] text-neutral-600">
+                    {"Only when enabled in Sandbox Mode, unreachable SSLCommerz calls route to the built-in HTML test simulator instead of failing cleanly."}
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(gatewayConfig.allow_sandbox_simulator)}
+                    onChange={(e) =>
+                      setGatewayConfig({ ...gatewayConfig, allow_sandbox_simulator: e.target.checked })
+                    }
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-neutral-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
                 </label>
               </div>
 

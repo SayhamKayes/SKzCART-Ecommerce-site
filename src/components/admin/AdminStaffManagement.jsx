@@ -20,7 +20,10 @@ import {
   Briefcase,
   Shield,
   RefreshCw,
-  Info
+  Info,
+  Navigation,
+  Sparkles,
+  Save
 } from "lucide-react";
 import { useLanguage } from "../../Context/LanguageContext";
 import { apiClient } from "../../services/api";
@@ -49,24 +52,23 @@ const ROLE_CONFIGS = {
     icon: Truck,
     descEn: "Fulfills orders, prints packing invoices, and connects with Steadfast / Pathao / RedX courier hubs.",
     descBn: "Fulfills orders, prints packing invoices, and connects with Steadfast / Pathao / RedX courier hubs."
+  },
+  RIDER: {
+    labelEn: "Delivery Rider",
+    labelBn: "Delivery Rider",
+    badgeClass: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+    icon: Navigation,
+    descEn: "Logs into Courier Rider Portal using assigned PIN/password to pick up and mark parcel deliveries.",
+    descBn: "Logs into Courier Rider Portal using assigned PIN/password to pick up and mark parcel deliveries."
   }
 };
 
 export const AdminStaffManagement = () => {
   const { isEnglish } = useLanguage();
 
-  const [staffList, setStaffList] = useState(() => {
-    try {
-      const cached = localStorage.getItem("amardokan_cached_staff");
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {}
-    return [];
-  });
+  const [staffList, setStaffList] = useState([]);
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("ALL");
   const [feedbackMsg, setFeedbackMsg] = useState(null);
@@ -89,15 +91,39 @@ export const AdminStaffManagement = () => {
   const [modalError, setModalError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Portal Access & Demo Customer Controls (Central DB)
+  const [portalAccess, setPortalAccess] = useState({
+    frontPanelAllowedRoles: ["ADMIN"],
+    riderPortalAllowedRoles: ["RIDER", "DISPATCHER", "ADMIN"],
+    demoCustomerEnabled: false,
+    demoCustomerPhone: "",
+    hasDemoCustomerPassword: false,
+    updatedAt: "",
+  });
+  const [demoCustomerPasswordInput, setDemoCustomerPasswordInput] = useState("");
+  const [showDemoPass, setShowDemoPass] = useState(false);
+  const [savingPortalAccess, setSavingPortalAccess] = useState(false);
+  const [loadingPortalAccess, setLoadingPortalAccess] = useState(true);
+
+  const fetchPortalAccess = async () => {
+    setLoadingPortalAccess(true);
+    try {
+      const res = await apiClient.getPortalAccessConfig();
+      if (res?.success && res.portalAccess) {
+        setPortalAccess(res.portalAccess);
+      }
+    } catch {
+    } finally {
+      setLoadingPortalAccess(false);
+    }
+  };
+
   const fetchStaff = async () => {
     setLoading(true);
     try {
       const data = await apiClient.getStaffMembers();
       if (Array.isArray(data)) {
         setStaffList(data);
-        try {
-          localStorage.setItem("amardokan_cached_staff", JSON.stringify(data));
-        } catch {}
       }
     } catch (err) {
       console.warn("Failed to fetch staff list from backend:", err);
@@ -108,6 +134,7 @@ export const AdminStaffManagement = () => {
 
   useEffect(() => {
     fetchStaff();
+    fetchPortalAccess();
   }, []);
 
   const showNotification = (type, text) => {
@@ -115,14 +142,14 @@ export const AdminStaffManagement = () => {
     setTimeout(() => setFeedbackMsg(null), 4000);
   };
 
-  const handleOpenAddModal = () => {
+  const handleOpenAddModal = (defaultRole = "MANAGER") => {
     setEditingStaff(null);
     setFormData({
       name: "",
       username: "",
       phone: "",
       email: "",
-      role: "MANAGER",
+      role: typeof defaultRole === "string" ? defaultRole : "MANAGER",
       password: "",
       confirmPassword: "",
       notes: "",
@@ -130,6 +157,34 @@ export const AdminStaffManagement = () => {
     });
     setModalError("");
     setIsModalOpen(true);
+  };
+
+  const handleSavePortalAccess = async (e) => {
+    if (e) e.preventDefault();
+    setSavingPortalAccess(true);
+    try {
+      const payload = {
+        frontPanelAllowedRoles: portalAccess.frontPanelAllowedRoles,
+        riderPortalAllowedRoles: portalAccess.riderPortalAllowedRoles,
+        demoCustomerEnabled: portalAccess.demoCustomerEnabled,
+        demoCustomerPhone: portalAccess.demoCustomerPhone,
+      };
+      if (demoCustomerPasswordInput.trim()) {
+        payload.demoCustomerPassword = demoCustomerPasswordInput.trim();
+      }
+      const res = await apiClient.updatePortalAccessConfig(payload);
+      if (res?.success && res.portalAccess) {
+        setPortalAccess(res.portalAccess);
+        setDemoCustomerPasswordInput("");
+        showNotification("success", res.message || "Portal access settings saved to central database!");
+      } else {
+        showNotification("error", res?.message || "Failed to save portal access settings.");
+      }
+    } catch (err) {
+      showNotification("error", err?.message || "Failed to save portal access settings.");
+    } finally {
+      setSavingPortalAccess(false);
+    }
   };
 
   const handleOpenEditModal = (staff) => {
@@ -208,9 +263,6 @@ export const AdminStaffManagement = () => {
             s.id === editingStaff.id ? { ...s, ...res.staff } : s
           );
           setStaffList(updatedList);
-          try {
-            localStorage.setItem("amardokan_cached_staff", JSON.stringify(updatedList));
-          } catch {}
           setIsModalOpen(false);
           showNotification(
             "success",
@@ -235,9 +287,6 @@ export const AdminStaffManagement = () => {
         if (res && res.success) {
           const updatedList = [...staffList, res.staff];
           setStaffList(updatedList);
-          try {
-            localStorage.setItem("amardokan_cached_staff", JSON.stringify(updatedList));
-          } catch {}
           setIsModalOpen(false);
           showNotification(
             "success",
@@ -271,9 +320,6 @@ export const AdminStaffManagement = () => {
           s.id === staff.id ? { ...s, status: newStatus } : s
         );
         setStaffList(updatedList);
-        try {
-          localStorage.setItem("amardokan_cached_staff", JSON.stringify(updatedList));
-        } catch {}
         showNotification(
           "success",
           `${staff.name} is now ${newStatus.toLowerCase()}!`
@@ -302,9 +348,6 @@ export const AdminStaffManagement = () => {
       if (res && res.success) {
         const updatedList = staffList.filter((s) => s.id !== staff.id);
         setStaffList(updatedList);
-        try {
-          localStorage.setItem("amardokan_cached_staff", JSON.stringify(updatedList));
-        } catch {}
         showNotification(
           "success",
           `Staff ${staff.name} removed successfully!`
@@ -333,6 +376,7 @@ export const AdminStaffManagement = () => {
   const totalAdmins = staffList.filter((s) => s.role === "ADMIN").length;
   const totalManagers = staffList.filter((s) => s.role === "MANAGER").length;
   const totalDispatchers = staffList.filter((s) => s.role === "DISPATCHER").length;
+  const totalRiders = staffList.filter((s) => s.role === "RIDER").length;
 
   return (
     <div className="space-y-6">
@@ -349,17 +393,26 @@ export const AdminStaffManagement = () => {
               {"Staff & Access Control Hub"}
             </h2>
             <p className="text-xs sm:text-sm text-neutral-300 leading-relaxed">
-              {"Assign dedicated roles to your team. Managers handle daily operations and products while sensitive gateway keys remain hidden; Dispatchers focus strictly on order packing & courier fulfillment."}
+              {"Assign dedicated roles to your team. Manage Admins, Managers, Dispatchers, Delivery Riders, Front Panel permissions, and Customer Demo account from one central panel."}
             </p>
           </div>
 
-          <button
-            onClick={handleOpenAddModal}
-            className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-950/50 transition-all transform hover:-translate-y-0.5 cursor-pointer shrink-0"
-          >
-            <UserPlus className="w-4 h-4" />
-            <span>{"+ Add New Staff"}</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <button
+              onClick={() => handleOpenAddModal("RIDER")}
+              className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-neutral-800 hover:bg-neutral-700 border border-emerald-500/40 text-emerald-300 font-bold text-xs shadow-lg transition-all cursor-pointer"
+            >
+              <Navigation className="w-4 h-4" />
+              <span>{"+ Add Rider"}</span>
+            </button>
+            <button
+              onClick={() => handleOpenAddModal("MANAGER")}
+              className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-emerald-950/50 transition-all transform hover:-translate-y-0.5 cursor-pointer"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>{"+ Add New Staff"}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -390,7 +443,7 @@ export const AdminStaffManagement = () => {
       )}
 
       {/* Role Summary Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Super Admins */}
         <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-2xs hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-2">
@@ -438,6 +491,22 @@ export const AdminStaffManagement = () => {
             {"Fulfillment & courier consignment"}
           </p>
         </div>
+
+        {/* Delivery Riders */}
+        <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-2xs hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-bold text-neutral-500 uppercase tracking-wider">
+              {"Delivery Riders"}
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <Navigation className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-black text-neutral-900">{totalRiders}</div>
+          <p className="text-[11px] text-neutral-500 mt-1">
+            {"Dynamic Rider Portal access & PIN"}
+          </p>
+        </div>
       </div>
 
       {/* Staff Table & Filters */}
@@ -460,8 +529,8 @@ export const AdminStaffManagement = () => {
 
           {/* Filter by Role & Refresh */}
           <div className="flex items-center gap-2.5">
-            <div className="inline-flex rounded-xl bg-white border border-neutral-300 p-0.5 text-xs font-semibold shadow-2xs">
-              {["ALL", "ADMIN", "MANAGER", "DISPATCHER"].map((role) => (
+            <div className="inline-flex flex-wrap rounded-xl bg-white border border-neutral-300 p-0.5 text-xs font-semibold shadow-2xs">
+              {["ALL", "ADMIN", "MANAGER", "DISPATCHER", "RIDER"].map((role) => (
                 <button
                   key={role}
                   onClick={() => setRoleFilter(role)}
@@ -644,6 +713,196 @@ export const AdminStaffManagement = () => {
         </div>
       </div>
 
+      {/* Central Portal Access & Customer Demo Auth Controls */}
+      <form
+        onSubmit={handleSavePortalAccess}
+        className="bg-white border border-neutral-200 rounded-3xl p-6 shadow-xs space-y-5"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-neutral-100">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center shrink-0">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-black text-neutral-900">
+                {"Portal Access & Demo Account Controls"}
+              </h3>
+              <p className="text-xs text-neutral-500 mt-0.5">
+                {"Centrally manage Front Panel Customizer access, Courier Rider Portal access, and Demo Customer login from the database."}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={savingPortalAccess || loadingPortalAccess}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-colors cursor-pointer disabled:opacity-50"
+          >
+            <Save className="w-4 h-4" />
+            <span>{savingPortalAccess ? "Saving..." : "Save Portal Access Rules"}</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 text-xs">
+          {/* 1. Front Panel Customizer Auth */}
+          <div className="p-4 rounded-2xl bg-neutral-50 border border-neutral-200 space-y-3">
+            <div className="flex items-center gap-2 font-bold text-neutral-900">
+              <Sparkles className="w-4 h-4 text-emerald-600" />
+              <span>{"Front Panel Customizer Access"}</span>
+            </div>
+            <p className="text-[11px] text-neutral-500 leading-relaxed">
+              {"Uses central database staff accounts & 2FA instead of static credentials. Choose which roles can open the Front Panel Customizer:"}
+            </p>
+            <div className="space-y-2 pt-1">
+              {[
+                { label: "Super Admin Only (Recommended)", roles: ["ADMIN"] },
+                { label: "Super Admin & Operations Manager", roles: ["ADMIN", "MANAGER"] },
+              ].map((opt) => {
+                const isSelected =
+                  opt.roles.length === (portalAccess.frontPanelAllowedRoles || []).length &&
+                  opt.roles.every((r) => (portalAccess.frontPanelAllowedRoles || []).includes(r));
+                return (
+                  <label
+                    key={opt.label}
+                    className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-colors ${
+                      isSelected
+                        ? "bg-emerald-50 border-emerald-500 text-emerald-950 font-semibold"
+                        : "bg-white border-neutral-200 text-neutral-700 hover:border-neutral-300"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="fpRoles"
+                      checked={isSelected}
+                      onChange={() =>
+                        setPortalAccess((prev) => ({ ...prev, frontPanelAllowedRoles: opt.roles }))
+                      }
+                      className="accent-emerald-600"
+                    />
+                    <span>{opt.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 2. Courier Rider Portal Access */}
+          <div className="p-4 rounded-2xl bg-neutral-50 border border-neutral-200 space-y-3">
+            <div className="flex items-center gap-2 font-bold text-neutral-900">
+              <Navigation className="w-4 h-4 text-amber-600" />
+              <span>{"Courier Rider Portal Access"}</span>
+            </div>
+            <p className="text-[11px] text-neutral-500 leading-relaxed">
+              {"Active riders & permitted logistics staff appear live in Courier Rider Portal using their Staff Password / PIN."}
+            </p>
+            <div className="space-y-1.5 pt-1">
+              {[
+                { role: "RIDER", label: "Delivery Riders" },
+                { role: "DISPATCHER", label: "Delivery Dispatchers" },
+                { role: "MANAGER", label: "Operations Managers" },
+                { role: "ADMIN", label: "Super Admins" },
+              ].map((item) => {
+                const checked = (portalAccess.riderPortalAllowedRoles || []).includes(item.role);
+                return (
+                  <label
+                    key={item.role}
+                    className="flex items-center justify-between p-2 rounded-xl bg-white border border-neutral-200 cursor-pointer hover:border-neutral-300"
+                  >
+                    <span className="font-medium text-neutral-800">{item.label}</span>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        const curr = new Set(portalAccess.riderPortalAllowedRoles || []);
+                        if (e.target.checked) curr.add(item.role);
+                        else if (curr.size > 1) curr.delete(item.role);
+                        setPortalAccess((prev) => ({
+                          ...prev,
+                          riderPortalAllowedRoles: Array.from(curr),
+                        }));
+                      }}
+                      className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+                    />
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 3. Customer Demo Account Toggle & Credentials */}
+          <div className="p-4 rounded-2xl bg-neutral-50 border border-neutral-200 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 font-bold text-neutral-900">
+                <Users className="w-4 h-4 text-blue-600" />
+                <span>{"Demo Customer Login"}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setPortalAccess((prev) => ({
+                    ...prev,
+                    demoCustomerEnabled: !prev.demoCustomerEnabled,
+                  }))
+                }
+                className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-colors cursor-pointer ${
+                  portalAccess.demoCustomerEnabled
+                    ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                    : "bg-neutral-200 text-neutral-700 border-neutral-300"
+                }`}
+              >
+                {portalAccess.demoCustomerEnabled ? "ENABLED" : "DISABLED (SAFE)"}
+              </button>
+            </div>
+            <p className="text-[11px] text-neutral-500 leading-relaxed">
+              {"Keep disabled in production unless you want a Demo Customer test login available."}
+            </p>
+            <div className="space-y-2.5 pt-1">
+              <div>
+                <label className="block text-[11px] font-bold text-neutral-700 mb-1">
+                  {"Demo Customer Phone (11 Digits)"}
+                </label>
+                <input
+                  type="tel"
+                  value={portalAccess.demoCustomerPhone || ""}
+                  onChange={(e) =>
+                    setPortalAccess((prev) => ({ ...prev, demoCustomerPhone: e.target.value }))
+                  }
+                  placeholder="017XXXXXXXX"
+                  className="w-full bg-white border border-neutral-300 rounded-xl px-3 py-2 text-xs text-neutral-900 focus:outline-hidden focus:border-emerald-600"
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-bold text-neutral-700">
+                    {portalAccess.hasDemoCustomerPassword
+                      ? "Update Demo Password (optional)"
+                      : "Demo Customer Password"}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowDemoPass((v) => !v)}
+                    className="text-[10px] text-neutral-500 hover:text-neutral-800 cursor-pointer"
+                  >
+                    {showDemoPass ? "Hide" : "Show"}
+                  </button>
+                </div>
+                <input
+                  type={showDemoPass ? "text" : "password"}
+                  value={demoCustomerPasswordInput}
+                  onChange={(e) => setDemoCustomerPasswordInput(e.target.value)}
+                  placeholder={
+                    portalAccess.hasDemoCustomerPassword
+                      ? "•••••••• (Configured)"
+                      : "Min 4 characters"
+                  }
+                  className="w-full bg-white border border-neutral-300 rounded-xl px-3 py-2 text-xs text-neutral-900 focus:outline-hidden focus:border-emerald-600"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </form>
+
       {/* Add / Edit Staff Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-950/70 backdrop-blur-xs">
@@ -764,7 +1023,7 @@ export const AdminStaffManagement = () => {
                 <label className="block text-xs font-bold text-neutral-700 mb-1">
                   {"Assign Role *"}
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {Object.entries(ROLE_CONFIGS).map(([key, config]) => {
                     const isSelected = formData.role === key;
                     const Icon = config.icon;

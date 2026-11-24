@@ -26,9 +26,26 @@ const AdminLoginModal = ({
     }).catch(() => {});
   }, [currentThemeShop]);
 
-  const [mode, setMode] = useState("login"); // 'login' | '2fa' | 'forgot' | 'reset'
+  const [mode, setMode] = useState("login"); // 'login' | 'setup' | '2fa' | 'forgot' | 'reset'
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+
+  // First-time Super Admin bootstrap state (when 0 staff accounts exist in DB)
+  const [setupName, setSetupName] = useState("Super Admin");
+  const [setupUsername, setSetupUsername] = useState("");
+  const [setupEmail, setSetupEmail] = useState("");
+  const [setupPassword, setSetupPassword] = useState("");
+  const [setupConfirmPassword, setSetupConfirmPassword] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    apiClient.getStaffSetupStatus().then((res) => {
+      if (active && res?.success && res?.needsSetup) {
+        setMode("setup");
+      }
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   // 2FA challenge state
   const [challengeToken, setChallengeToken] = useState("");
@@ -166,12 +183,48 @@ const AdminLoginModal = ({
     }
   };
 
+  const handleBootstrapAdmin = async (e) => {
+    e.preventDefault();
+    setError("");
+    setSuccessMsg("");
+    if (setupUsername.trim().length < 3) {
+      setError("Username must be at least 3 characters.");
+      return;
+    }
+    if (setupPassword.trim().length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    if (setupPassword.trim() !== setupConfirmPassword.trim()) {
+      setError("Passwords do not match.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await apiClient.bootstrapInitialAdmin({
+        name: setupName.trim() || "Super Admin",
+        username: setupUsername.trim().toLowerCase(),
+        email: setupEmail.trim(),
+        password: setupPassword.trim(),
+      });
+      if (res?.success && (res?.user || res?.staff)) {
+        onSuccess(res.user || res.staff);
+      } else {
+        setError(res?.message || "Failed to initialize Super Admin.");
+      }
+    } catch {
+      setError("Unable to reach server during initial admin setup.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-neutral-950 flex flex-col justify-center items-center p-4 relative">
       <div className="max-w-md w-full bg-neutral-900 border border-neutral-800 rounded-3xl p-7 sm:p-8 shadow-2xl text-neutral-100">
         <div className="flex items-center justify-between mb-6">
           <button
-            onClick={mode === "login" ? onBackToStore : () => {
+            onClick={mode === "login" || mode === "setup" ? onBackToStore : () => {
               setMode("login");
               setError("");
               setSuccessMsg("");
@@ -179,7 +232,7 @@ const AdminLoginModal = ({
             className="inline-flex items-center gap-1.5 text-xs text-neutral-400 hover:text-white transition-colors cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
-            <span>{mode === "login" ? "Return to Shop" : "Back to Sign In"}</span>
+            <span>{mode === "login" || mode === "setup" ? "Return to Shop" : "Back to Sign In"}</span>
           </button>
         </div>
 
@@ -194,22 +247,26 @@ const AdminLoginModal = ({
         </div>
 
         <h2 className="text-2xl font-black text-white tracking-tight">
-          {mode === "2fa"
-            ? "Two-Step Verification"
-            : mode === "forgot" || mode === "reset"
-              ? "Admin Password Recovery"
-              : `${shopName} Operations Portal`}
+          {mode === "setup"
+            ? `Setup ${shopName} Super Admin`
+            : mode === "2fa"
+              ? "Two-Step Verification"
+              : mode === "forgot" || mode === "reset"
+                ? "Admin Password Recovery"
+                : `${shopName} Operations Portal`}
         </h2>
         <p className="text-xs text-neutral-400 mt-1.5 mb-6 leading-relaxed">
-          {mode === "2fa"
-            ? (twoFaMethod === "EMAIL_OTP"
-                ? `Enter the 6-digit security code sent to ${twoFaTarget}.`
-                : `Enter the 6-digit code from your Authenticator app${hasRecoveryPin ? " or Backup Recovery PIN" : ""}.`)
-            : mode === "forgot"
-              ? "Enter your staff username or registered email to receive a 6-digit recovery code."
-              : mode === "reset"
-                ? "Enter the 6-digit email verification code and choose a new password."
-                : "Sign in with your assigned role credentials (Admin, Manager, or Dispatcher)."}
+          {mode === "setup"
+            ? "No staff accounts exist yet. Create your primary Super Admin account to get started."
+            : mode === "2fa"
+              ? (twoFaMethod === "EMAIL_OTP"
+                  ? `Enter the 6-digit security code sent to ${twoFaTarget}.`
+                  : `Enter the 6-digit code from your Authenticator app${hasRecoveryPin ? " or Backup Recovery PIN" : ""}.`)
+              : mode === "forgot"
+                ? "Enter your staff username or registered email to receive a 6-digit recovery code."
+                : mode === "reset"
+                  ? "Enter the 6-digit email verification code and choose a new password."
+                  : "Sign in with your assigned role credentials (Admin, Manager, or Dispatcher)."}
         </p>
 
         {error && (
@@ -224,6 +281,72 @@ const AdminLoginModal = ({
             <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
             <span>{successMsg}</span>
           </div>
+        )}
+
+        {mode === "setup" && (
+          <form onSubmit={handleBootstrapAdmin} className="space-y-3.5">
+            <div>
+              <label className="block text-xs font-semibold text-neutral-300 mb-1">Full Name</label>
+              <input
+                type="text"
+                required
+                value={setupName}
+                onChange={(e) => setSetupName(e.target.value)}
+                className="w-full bg-neutral-800/60 border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-hidden"
+                placeholder="Store Owner"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-neutral-300 mb-1">Admin Username</label>
+              <input
+                type="text"
+                required
+                value={setupUsername}
+                onChange={(e) => setSetupUsername(e.target.value)}
+                className="w-full bg-neutral-800/60 border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-hidden"
+                placeholder="Choose a unique username"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-neutral-300 mb-1">Recovery Email (Optional)</label>
+              <input
+                type="email"
+                value={setupEmail}
+                onChange={(e) => setSetupEmail(e.target.value)}
+                className="w-full bg-neutral-800/60 border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-hidden"
+                placeholder="owner@yourstore.com"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-neutral-300 mb-1">Strong Password (6+ chars)</label>
+              <input
+                type="password"
+                required
+                value={setupPassword}
+                onChange={(e) => setSetupPassword(e.target.value)}
+                className="w-full bg-neutral-800/60 border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-hidden"
+                placeholder="At least 6 characters"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-neutral-300 mb-1">Confirm Password</label>
+              <input
+                type="password"
+                required
+                value={setupConfirmPassword}
+                onChange={(e) => setSetupConfirmPassword(e.target.value)}
+                className="w-full bg-neutral-800/60 border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-hidden"
+                placeholder="Repeat password"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 font-bold text-sm text-white rounded-xl transition-colors shadow-lg shadow-emerald-900/30 flex items-center justify-center gap-2 mt-2 cursor-pointer disabled:opacity-50"
+            >
+              {loading ? "Creating Super Admin..." : "Create Super Admin & Sign In"}
+            </button>
+          </form>
         )}
 
         {mode === "login" && (
