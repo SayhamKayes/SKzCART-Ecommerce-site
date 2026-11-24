@@ -4,6 +4,7 @@ import {
   Mail,
   Phone,
   MapPin,
+  Home,
   Search,
   Send,
   X,
@@ -16,13 +17,33 @@ import {
 } from "lucide-react";
 import { formatBDT, formatBDTDateTime } from "../../utils/bangladesh";
 import { apiClient } from "../../services/api";
+import { realtimeService } from "../../services/realtime";
+import { useThemeConfig } from "../frontPanel/FrontPanelContext";
+
+const isPlaceholderEmail = (email) =>
+  !email || !email.includes("@") || email.toLowerCase().endsWith("@customer.amardokan.com");
+
+const formatLocationLabel = (thana, district) => {
+  const parts = [String(thana || "").trim(), String(district || "").trim()].filter(Boolean);
+  return parts.join(", ");
+};
 
 const AdminLeads = ({ orders = [] }) => {
+  const { themeConfig } = useThemeConfig();
+  const shopCfg = themeConfig?.shop || {};
+  const storeName = String(shopCfg.name || "").trim() || "AmarDokan";
+  const smtpUser = String(shopCfg.emailHostUser || "").trim();
+  const smtpPass = String(shopCfg.emailHostPassword || "").trim();
+  const smtpHost = String(shopCfg.emailHost || "smtp.gmail.com").trim();
+  const emailEnabled = shopCfg.emailEnabled !== false;
+  const isSmtpReady = Boolean(emailEnabled && smtpUser && smtpPass);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState("ALL"); // ALL | HAS_EMAIL | SSLCOMMERZ | MFS | COD
   const [selectedLead, setSelectedLead] = useState(null);
 
   // Email Composer state inside Lead Details Popup
+  const [emailRecipient, setEmailRecipient] = useState("");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [isSendingEmail, setIsSendingEmail] = useState(false);
@@ -39,27 +60,29 @@ const AdminLeads = ({ orders = [] }) => {
 
   const leads = useMemo(() => {
     const grouped = new Map();
-    const safeOrders = Array.isArray(orders) ? orders : [];
+    const safeOrders = [...(Array.isArray(orders) ? orders : [])].sort((a, b) =>
+      String(b?.createdAt || "").localeCompare(String(a?.createdAt || ""))
+    );
 
     for (const o of safeOrders) {
       if (!o || typeof o !== "object") continue;
       const addr = o.address && typeof o.address === "object" ? o.address : {};
       const phone = String(addr.phone ?? "").trim();
       const rawEmail = String(o.customerEmail ?? addr.email ?? "").trim();
-      const email = rawEmail;
-      const key = phone || email || String(o.id ?? grouped.size);
+      const realEmail = !isPlaceholderEmail(rawEmail) ? rawEmail : "";
+      const key = phone || realEmail || String(o.id ?? grouped.size);
 
-      const safeName = String(addr.customerName || "Customer");
-      const safeDistrict = String(addr.district || "");
-      const safeThana = String(addr.thana || "");
-      const safeFullAddress = String(addr.fullAddress || addr.address || "");
+      const safeName = String(addr.customerName || "").trim();
+      const safeDistrict = String(addr.district || "").trim();
+      const safeThana = String(addr.thana || "").trim();
+      const safeFullAddress = String(addr.fullAddress || addr.address || "").trim();
 
       if (!grouped.has(key)) {
         grouped.set(key, {
           id: key,
-          name: safeName,
+          name: safeName || "Customer",
           phone: phone || "N/A",
-          email: email || "",
+          email: realEmail,
           district: safeDistrict,
           thana: safeThana,
           fullAddress: safeFullAddress,
@@ -73,10 +96,11 @@ const AdminLeads = ({ orders = [] }) => {
       }
 
       const lead = grouped.get(key);
+      // Keep most recent non-empty profile fields (safeOrders is newest-first)
       if (safeName && safeName !== "Customer" && lead.name === "Customer") lead.name = safeName;
-      if (email && (!lead.email || lead.email.endsWith("@customer.amardokan.com"))) {
-        lead.email = email;
-      }
+      if (realEmail && !lead.email) lead.email = realEmail;
+      if (safeDistrict && !lead.district) lead.district = safeDistrict;
+      if (safeThana && !lead.thana) lead.thana = safeThana;
       if (safeFullAddress && !lead.fullAddress) lead.fullAddress = safeFullAddress;
 
       lead.ordersCount += 1;
@@ -112,10 +136,9 @@ const AdminLeads = ({ orders = [] }) => {
 
     return Array.from(grouped.values()).map((l) => ({
       ...l,
+      locationText: formatLocationLabel(l.thana, l.district),
       paymentMethods: Array.from(l.paymentMethods),
-      hasRealEmail: Boolean(
-        l.email && l.email.includes("@") && !l.email.endsWith("@customer.amardokan.com")
-      ),
+      hasRealEmail: Boolean(l.email && !isPlaceholderEmail(l.email)),
     }));
   }, [orders]);
 
@@ -137,6 +160,7 @@ const AdminLeads = ({ orders = [] }) => {
         String(l.name || "").toLowerCase().includes(q) ||
         String(l.email || "").toLowerCase().includes(q) ||
         String(l.phone || "").toLowerCase().includes(q) ||
+        String(l.locationText || "").toLowerCase().includes(q) ||
         String(l.fullAddress || "").toLowerCase().includes(q) ||
         l.purchasedProducts.some((p) => String(p.name || "").toLowerCase().includes(q))
       );
@@ -146,32 +170,42 @@ const AdminLeads = ({ orders = [] }) => {
   const openLeadModal = (lead) => {
     setSelectedLead(lead);
     setEmailStatus(null);
+    setEmailRecipient(lead.hasRealEmail ? lead.email : "");
     const firstProd = lead.purchasedProducts[0]?.name || "our products";
-    setEmailSubject(`Thank you for shopping with us, ${lead.name}!`);
+    setEmailSubject(`Thank you for shopping with ${storeName}, ${lead.name}!`);
     setEmailBody(
-      `Hi ${lead.name},\n\nThank you for your recent purchase (${firstProd}). We hope you are enjoying it! Let us know if you need any assistance or would like to explore our newest arrivals.\n\nBest regards,\nCustomer Care Team`
+      `Hi ${lead.name},\n\nThank you for your recent purchase (${firstProd}) from ${storeName}. We hope you are enjoying it! Let us know if you need any assistance or would like to explore our newest arrivals.\n\nBest regards,\n${storeName} Team`
     );
   };
 
   const handleSendLeadEmail = async (e) => {
     e.preventDefault();
-    if (!selectedLead?.email || !selectedLead.email.includes("@")) {
-      setEmailStatus({ success: false, message: "This lead does not have a valid email address." });
+    const targetEmail = emailRecipient.trim();
+    if (!targetEmail || !targetEmail.includes("@") || !targetEmail.split("@")[1]?.includes(".")) {
+      setEmailStatus({ success: false, message: "Please enter a valid recipient email address." });
+      return;
+    }
+    if (!emailSubject.trim() || !emailBody.trim()) {
+      setEmailStatus({ success: false, message: "Subject and message body are required." });
       return;
     }
     setIsSendingEmail(true);
     setEmailStatus(null);
     try {
       const res = await apiClient.sendNotification({
-        recipient: selectedLead.email,
+        recipient: targetEmail,
         subject: emailSubject.trim(),
         messageText: emailBody.trim(),
         templateName: "LEAD_AUTOMATED_FOLLOWUP",
-        orderId: selectedLead.orderHistory[0]?.id || "LEAD-EMAIL",
+        orderId: selectedLead?.orderHistory[0]?.id || "LEAD-EMAIL",
       });
+      const ok = Boolean(res?.success);
+      if (ok) {
+        realtimeService.publish({ type: "NOTIFICATION_DISPATCHED", recipient: targetEmail });
+      }
       setEmailStatus({
-        success: Boolean(res?.success),
-        message: res?.message || (res?.success ? "Email sent successfully!" : "Failed to send email."),
+        success: ok,
+        message: res?.message || (ok ? `Email sent to ${targetEmail}` : "Failed to send email."),
       });
     } catch (err) {
       setEmailStatus({ success: false, message: err?.message || "Failed to dispatch email." });
@@ -181,7 +215,7 @@ const AdminLeads = ({ orders = [] }) => {
   };
 
   const totalLeadValue = leads.reduce((acc, l) => acc + l.totalSpent, 0);
-  const emailableLeadsCount = leads.filter((l) => l.email && l.email.includes("@")).length;
+  const emailableLeadsCount = leads.filter((l) => l.hasRealEmail).length;
   const repeatLeadsCount = leads.filter((l) => l.ordersCount > 1).length;
 
   return (
@@ -200,13 +234,30 @@ const AdminLeads = ({ orders = [] }) => {
             {"Every buyer's contact info, address, payment gateway history, purchased products, and automated follow-up email actions."}
           </p>
         </div>
+
+        <div
+          className={`px-3 py-1.5 rounded-full border text-[11px] font-bold flex items-center gap-1.5 ${
+            isSmtpReady
+              ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+              : "bg-amber-50 border-amber-200 text-amber-800"
+          }`}
+        >
+          <Mail className="w-3.5 h-3.5" />
+          <span>
+            {isSmtpReady
+              ? `SMTP Ready (${smtpHost})`
+              : !emailEnabled
+              ? "Email Disabled in Notifications"
+              : "SMTP Not Configured"}
+          </span>
+        </div>
       </div>
 
       {/* Summary KPI Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: "Total Captured Leads", val: leads.length, sub: "Unique buyers from orders" },
-          { label: "With Email Contacts", val: emailableLeadsCount, sub: "Ready for automated email" },
+          { label: "With Email Contacts", val: emailableLeadsCount, sub: "Verified emails for follow-up" },
           { label: "Repeat Customers", val: repeatLeadsCount, sub: "2+ orders placed" },
           { label: "Total Lead Revenue", val: formatBDT(totalLeadValue), sub: "Combined order value" },
         ].map((item) => (
@@ -224,7 +275,7 @@ const AdminLeads = ({ orders = [] }) => {
           <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Search leads by name, email, phone, address, or product..."
+            placeholder="Search leads by name, email, phone, location, address, or product..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2 bg-neutral-50 rounded-xl border border-neutral-200 text-xs focus:bg-white focus:border-emerald-600 focus:outline-hidden"
@@ -234,7 +285,7 @@ const AdminLeads = ({ orders = [] }) => {
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           {[
             { id: "ALL", label: "All Leads" },
-            { id: "HAS_EMAIL", label: "Custom Email" },
+            { id: "HAS_EMAIL", label: "With Email" },
             { id: "SSLCOMMERZ", label: "SSLCommerz" },
             { id: "MFS", label: "MFS" },
             { id: "COD", label: "COD" },
@@ -286,7 +337,7 @@ const AdminLeads = ({ orders = [] }) => {
                     <td className="py-3 px-4">
                       <span className="font-bold text-neutral-900 block">{lead.name}</span>
                       <span className="text-[11px] text-emerald-700 font-mono block">{lead.phone}</span>
-                      {lead.email && (
+                      {lead.hasRealEmail && (
                         <span className="text-[10px] text-neutral-500 flex items-center gap-1 mt-0.5">
                           <Mail className="w-3 h-3 text-neutral-400" />
                           {lead.email}
@@ -294,8 +345,12 @@ const AdminLeads = ({ orders = [] }) => {
                       )}
                     </td>
                     <td className="py-3 px-4 max-w-xs">
-                      <span className="font-semibold text-neutral-800 block">{lead.district || "—"}</span>
-                      <span className="text-[11px] text-neutral-500 line-clamp-1">{lead.fullAddress}</span>
+                      <span className="font-semibold text-neutral-800 block">
+                        {lead.locationText || "—"}
+                      </span>
+                      <span className="text-[11px] text-neutral-500 line-clamp-1">
+                        {lead.fullAddress || "No address provided"}
+                      </span>
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex flex-wrap gap-1">
@@ -349,35 +404,44 @@ const AdminLeads = ({ orders = [] }) => {
           >
             {/* Modal Header */}
             <div className="flex items-start justify-between gap-4 border-b border-neutral-100 pb-4">
-              <div>
+              <div className="min-w-0 flex-1">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
                   {"Customer Lead Profile (A-Z)"}
                 </span>
                 <h2 id="lead-detail-modal-title" className="text-xl font-black text-neutral-900 mt-1">
                   {selectedLead.name}
                 </h2>
-                <div className="flex flex-wrap gap-3 text-xs text-neutral-600 mt-1">
+                <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-neutral-600 mt-1.5">
                   <span className="flex items-center gap-1 font-mono">
-                    <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                    <Phone className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                     {selectedLead.phone}
                   </span>
-                  {selectedLead.email && (
+                  {selectedLead.hasRealEmail && (
                     <span className="flex items-center gap-1">
-                      <Mail className="w-3.5 h-3.5 text-blue-600" />
+                      <Mail className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                       {selectedLead.email}
                     </span>
                   )}
                   <span className="flex items-center gap-1">
-                    <MapPin className="w-3.5 h-3.5 text-rose-500" />
-                    {`${selectedLead.thana ? `${selectedLead.thana}, ` : ""}${selectedLead.district} — ${selectedLead.fullAddress}`}
+                    <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                    {selectedLead.locationText || "Location not specified"}
                   </span>
+                </div>
+                <div className="mt-2 flex items-start gap-1.5 text-xs text-neutral-700 bg-neutral-50 border border-neutral-200/80 rounded-xl px-3 py-2">
+                  <Home className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold text-neutral-900 mr-1.5">{"Full Address:"}</span>
+                    <span className="text-neutral-700 break-words">
+                      {selectedLead.fullAddress || "Not provided"}
+                    </span>
+                  </div>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedLead(null)}
                 aria-label="Close lead details modal"
-                className="p-1.5 rounded-full hover:bg-neutral-100 text-neutral-400 hover:text-neutral-700 cursor-pointer"
+                className="p-1.5 rounded-full hover:bg-neutral-100 text-neutral-400 hover:text-neutral-700 cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -395,7 +459,9 @@ const AdminLeads = ({ orders = [] }) => {
               </div>
               <div className="p-3 rounded-2xl bg-neutral-50 border border-neutral-200">
                 <span className="text-[10px] font-bold text-neutral-500 uppercase block">{"Payment Channels"}</span>
-                <span className="text-sm font-black text-neutral-900">{selectedLead.paymentMethods.join(", ")}</span>
+                <span className="text-sm font-black text-neutral-900">
+                  {selectedLead.paymentMethods.length > 0 ? selectedLead.paymentMethods.join(", ") : "N/A"}
+                </span>
               </div>
             </div>
 
@@ -406,17 +472,21 @@ const AdminLeads = ({ orders = [] }) => {
                 <span>{"Purchased Products"}</span>
               </h3>
               <div className="divide-y divide-neutral-100 border border-neutral-200 rounded-2xl overflow-hidden text-xs">
-                {selectedLead.purchasedProducts.map((p, idx) => (
-                  <div key={`${p.orderId}-${idx}`} className="p-3 flex items-center justify-between gap-3 bg-white">
-                    <div>
-                      <span className="font-bold text-neutral-900 block">{p.name}</span>
-                      <span className="text-[10px] text-neutral-500">
-                        {`Order #${p.orderId} • Qty: ${p.quantity}${p.variant ? ` • Variant: ${p.variant}` : ""}`}
-                      </span>
+                {selectedLead.purchasedProducts.length === 0 ? (
+                  <div className="p-4 text-center text-neutral-400">{"No product items recorded."}</div>
+                ) : (
+                  selectedLead.purchasedProducts.map((p, idx) => (
+                    <div key={`${p.orderId}-${idx}`} className="p-3 flex items-center justify-between gap-3 bg-white">
+                      <div>
+                        <span className="font-bold text-neutral-900 block">{p.name}</span>
+                        <span className="text-[10px] text-neutral-500">
+                          {`Order #${p.orderId} • Qty: ${p.quantity}${p.variant ? ` • Variant: ${p.variant}` : ""}`}
+                        </span>
+                      </div>
+                      <span className="font-black text-neutral-900">{formatBDT(p.price * p.quantity)}</span>
                     </div>
-                    <span className="font-black text-neutral-900">{formatBDT(p.price * p.quantity)}</span>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
 
@@ -461,12 +531,39 @@ const AdminLeads = ({ orders = [] }) => {
 
             {/* Automated Email Follow-Up Composer */}
             <form onSubmit={handleSendLeadEmail} className="p-4 rounded-2xl bg-neutral-50 border border-neutral-200 space-y-3 text-xs">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h4 className="font-black text-neutral-900 flex items-center gap-1.5">
                   <Send className="w-3.5 h-3.5 text-emerald-600" />
                   <span>{"Send Follow-Up Email (via Configured SMTP Gateway)"}</span>
                 </h4>
-                <span className="text-[10px] font-mono text-neutral-500">{selectedLead.email || "No email"}</span>
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                    isSmtpReady
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                      : "bg-amber-50 border-amber-200 text-amber-800"
+                  }`}
+                >
+                  {isSmtpReady
+                    ? `Connected: ${smtpHost} (${smtpUser})`
+                    : !emailEnabled
+                    ? "Email disabled in Notifications"
+                    : "SMTP not configured in Notifications"}
+                </span>
+              </div>
+
+              <div>
+                <label htmlFor="lead-email-recipient" className="block font-bold text-neutral-700 mb-1">
+                  {"Recipient Email"}
+                </label>
+                <input
+                  id="lead-email-recipient"
+                  type="email"
+                  required
+                  placeholder="customer@example.com"
+                  value={emailRecipient}
+                  onChange={(e) => setEmailRecipient(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-neutral-300 bg-white text-xs outline-none focus:border-emerald-600 font-mono"
+                />
               </div>
 
               <div>
@@ -517,7 +614,7 @@ const AdminLeads = ({ orders = [] }) => {
               <div className="flex justify-end">
                 <button
                   type="submit"
-                  disabled={isSendingEmail || !selectedLead.email}
+                  disabled={isSendingEmail || !emailRecipient.trim()}
                   className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold flex items-center gap-1.5 cursor-pointer"
                 >
                   {isSendingEmail ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
@@ -534,4 +631,3 @@ const AdminLeads = ({ orders = [] }) => {
 
 export { AdminLeads };
 export default AdminLeads;
-
