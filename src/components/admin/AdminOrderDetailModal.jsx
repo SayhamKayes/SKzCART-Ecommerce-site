@@ -9,6 +9,7 @@ import {
   CheckCircle2
 } from "lucide-react";
 import { formatBDT, formatBDTDateTime } from "../../utils/bangladesh";
+import { formatOrderStatusLabel } from "../../utils/orderStatus";
 import { apiClient } from "../../services/api";
 import { realtimeService } from "../../services/realtime";
 import { useLanguage } from "../../Context/LanguageContext";
@@ -45,7 +46,7 @@ const AdminOrderDetailModal = ({
       await apiClient.updateOrderStatus(
         order.id,
         newStatus,
-        statusNote.trim() || `Status updated to ${newStatus}`,
+        statusNote.trim() || `Status updated to ${formatOrderStatusLabel(newStatus)}`,
         "Staff",
         currentRole
       );
@@ -74,8 +75,8 @@ const AdminOrderDetailModal = ({
               <span className="font-mono text-sm font-bold bg-neutral-100 text-neutral-800 px-2.5 py-1 rounded-md">
                 #{order.id}
               </span>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 uppercase tracking-wider">
-                {order.status}
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 tracking-wider">
+                {formatOrderStatusLabel(order.status)}
               </span>
             </div>
             <p className="text-xs text-neutral-400 mt-1">
@@ -275,31 +276,31 @@ const AdminOrderDetailModal = ({
                   className="w-full px-3 py-2 bg-neutral-50 rounded-xl border border-neutral-300 font-bold text-xs focus:outline-hidden focus:border-emerald-600 cursor-pointer"
                 >
                   <option value="PENDING">
-                    {"PENDING - Awaiting Verification"}
+                    {"Pending (Awaiting Verification)"}
                   </option>
                   <option value="CONFIRMED">
-                    {"CONFIRMED - Customer Confirmed"}
+                    {"Confirmed (Customer Confirmed)"}
                   </option>
                   <option value="COURIER_CREATED">
-                    {"COURIER_CREATED - Parcel Booked"}
+                    {"Courier Booked (Parcel Booked)"}
                   </option>
                   <option value="PICKED_UP">
-                    {"PICKED_UP - Handed to Courier"}
+                    {"Picked Up (Handed to Courier)"}
                   </option>
                   <option value="IN_TRANSIT">
-                    {"IN_TRANSIT - In Transit Hub"}
+                    {"In Transit (In Hub Transit)"}
                   </option>
                   <option value="OUT_FOR_DELIVERY">
-                    {"OUT_FOR_DELIVERY - Out For Delivery"}
+                    {"Out for Delivery (Rider En Route)"}
                   </option>
                   <option value="DELIVERED">
-                    {"DELIVERED - Delivered & Paid"}
+                    {"Delivered (Delivered & Paid)"}
                   </option>
                   <option value="CANCELLED">
-                    {"CANCELLED - Order Cancelled"}
+                    {"Cancelled (Order Cancelled)"}
                   </option>
                   <option value="RETURNED">
-                    {"RETURNED - Parcel Returned"}
+                    {"Returned (Parcel Returned)"}
                   </option>
                 </select>
               </div>

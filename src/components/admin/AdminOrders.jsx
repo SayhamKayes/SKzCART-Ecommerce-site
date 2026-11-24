@@ -28,6 +28,7 @@ import {
   Banknote
 } from "lucide-react";
 import { formatBDT, formatBDTDateTime } from "../../utils/bangladesh";
+import { formatOrderStatusLabel } from "../../utils/orderStatus";
 import { apiClient } from "../../services/api";
 import { realtimeService } from "../../services/realtime";
 import { useLanguage } from "../../Context/LanguageContext";
@@ -240,9 +241,12 @@ const AdminOrders = ({
     { key: "PENDING", label: "Pending" },
     { key: "CONFIRMED", label: "Confirmed" },
     { key: "COURIER_CREATED", label: "Courier Booked" },
+    { key: "PICKED_UP", label: "Picked Up" },
     { key: "IN_TRANSIT", label: "In Transit" },
+    { key: "OUT_FOR_DELIVERY", label: "Out for Delivery" },
     { key: "DELIVERED", label: "Delivered" },
-    { key: "CANCELLED", label: "Cancelled" }
+    { key: "CANCELLED", label: "Cancelled" },
+    { key: "RETURNED", label: "Returned" }
   ];
 
   const tabItems = [
@@ -391,31 +395,7 @@ const AdminOrders = ({
     }
   };
 
-  const getStatusBadge = (status) => {
-    if (isEnglish) return status;
-    switch (status) {
-      case "PENDING":
-        return "Pending";
-      case "CONFIRMED":
-        return "Confirmed";
-      case "COURIER_CREATED":
-        return "Courier Booked";
-      case "PICKED_UP":
-        return "Picked Up";
-      case "IN_TRANSIT":
-        return "Processing";
-      case "OUT_FOR_DELIVERY":
-        return "Out for Delivery";
-      case "DELIVERED":
-        return "Delivered";
-      case "CANCELLED":
-        return "Cancelled";
-      case "RETURNED":
-        return "Returned";
-      default:
-        return status;
-    }
-  };
+  const getStatusBadge = (status) => formatOrderStatusLabel(status);
 
   const filteredOrders = orders.filter((o) => {
     const matchStatus = selectedStatusFilter === "ALL" || o.status === selectedStatusFilter;

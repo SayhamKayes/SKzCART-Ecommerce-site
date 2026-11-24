@@ -17,6 +17,7 @@ import {
   Layers
 } from "lucide-react";
 import { formatBDT } from "../../utils/bangladesh";
+import { formatOrderStatusLabel, COURIER_PROVIDER_STATUS_OPTIONS } from "../../utils/orderStatus";
 import { apiClient } from "../../services/api";
 import { realtimeService } from "../../services/realtime";
 import { useLanguage } from "../../Context/LanguageContext";
@@ -32,6 +33,10 @@ const AdminCouriers = ({ orders, onRefresh, onOpenRiderPortal }) => {
   const [simulationLog, setSimulationLog] = useState("");
   const [courierConfigs, setCourierConfigs] = useState([]);
   const [loadingCouriers, setLoadingCouriers] = useState(true);
+  const [webhookSimulatorEnabled, setWebhookSimulatorEnabled] = useState(false);
+  const [isTogglingSimulator, setIsTogglingSimulator] = useState(false);
+  const [isSwitchingAllMode, setIsSwitchingAllMode] = useState(false);
+  const [modeFeedback, setModeFeedback] = useState("");
 
   // Active Selected Courier Modal (Opened on click)
   const [activeCourierModal, setActiveCourierModal] = useState(null);
@@ -39,8 +44,8 @@ const AdminCouriers = ({ orders, onRefresh, onOpenRiderPortal }) => {
     apiKey: "",
     secret: "",
     extraCredentials: {},
-    insideDhakaRate: 60,
-    outsideDhakaRate: 130,
+    insideDhakaRate: 0,
+    outsideDhakaRate: 0,
     codFeePercent: 1.0,
     coverage: ""
   });
@@ -54,9 +59,16 @@ const AdminCouriers = ({ orders, onRefresh, onOpenRiderPortal }) => {
   const loadLiveCouriers = async () => {
     setLoadingCouriers(true);
     try {
-      const data = await apiClient.getCouriers();
+      const [data, ctrlRes] = await Promise.all([
+        apiClient.getCouriers(),
+        apiClient.getCourierControls(),
+      ]);
       if (Array.isArray(data) && data.length > 0) {
         setCourierConfigs(data);
+        setSelectedCourier((prev) => (data.some((c) => c.id === prev) ? prev : data[0].id));
+      }
+      if (ctrlRes?.success && ctrlRes.controls) {
+        setWebhookSimulatorEnabled(Boolean(ctrlRes.controls.webhookSimulatorEnabled));
       }
     } catch (e) {
       console.error("Failed to load couriers:", e);
@@ -64,6 +76,47 @@ const AdminCouriers = ({ orders, onRefresh, onOpenRiderPortal }) => {
       setLoadingCouriers(false);
     }
   };
+
+  const handleToggleWebhookSimulator = async () => {
+    const nextVal = !webhookSimulatorEnabled;
+    setIsTogglingSimulator(true);
+    try {
+      const res = await apiClient.updateCourierControls({ webhookSimulatorEnabled: nextVal });
+      if (res?.success && res.controls) {
+        setWebhookSimulatorEnabled(Boolean(res.controls.webhookSimulatorEnabled));
+      } else {
+        setWebhookSimulatorEnabled(nextVal);
+      }
+    } catch {
+    } finally {
+      setIsTogglingSimulator(false);
+    }
+  };
+
+  const handleSetAllCouriersMode = async (targetMode) => {
+    setIsSwitchingAllMode(true);
+    setModeFeedback("");
+    try {
+      const res = await apiClient.setCourierMode({ mode: targetMode, provider: "all" });
+      if (res?.success) {
+        if (Array.isArray(res.couriers)) setCourierConfigs(res.couriers);
+        if (res.controls) setWebhookSimulatorEnabled(Boolean(res.controls.webhookSimulatorEnabled));
+        setModeFeedback(res.message || `Couriers switched to ${targetMode} mode.`);
+        setTimeout(() => setModeFeedback(""), 4500);
+      }
+    } catch {
+    } finally {
+      setIsSwitchingAllMode(false);
+    }
+  };
+
+  useEffect(() => {
+    const opts = COURIER_PROVIDER_STATUS_OPTIONS[selectedCourier] || COURIER_PROVIDER_STATUS_OPTIONS.steadfast;
+    if (opts && opts.length > 0 && !opts.some((o) => o.value === simulatedStatus)) {
+      const deliveredOpt = opts.find((o) => o.label.toLowerCase() === "delivered");
+      setSimulatedStatus(deliveredOpt ? deliveredOpt.value : opts[0].value);
+    }
+  }, [selectedCourier]);
 
   useEffect(() => {
     loadLiveCouriers();
@@ -104,8 +157,8 @@ const AdminCouriers = ({ orders, onRefresh, onOpenRiderPortal }) => {
       apiKey: cfg.apiKey || "",
       secret: cfg.secret || "",
       extraCredentials: (cfg.extraCredentials && typeof cfg.extraCredentials === "object") ? cfg.extraCredentials : {},
-      insideDhakaRate: cfg.insideDhakaRate ?? 60,
-      outsideDhakaRate: cfg.outsideDhakaRate ?? 130,
+      insideDhakaRate: cfg.insideDhakaRate ?? 0,
+      outsideDhakaRate: cfg.outsideDhakaRate ?? 0,
       codFeePercent: cfg.codFeePercent ?? 1.0,
       coverage: cfg.coverage || ""
     });
@@ -271,7 +324,9 @@ const AdminCouriers = ({ orders, onRefresh, onOpenRiderPortal }) => {
             {"Courier Integration Health"}
           </span>
           <span className="text-2xl font-black text-neutral-900 mt-1 block">
-            {"4/4 Online"}
+            {loadingCouriers
+              ? "Loading..."
+              : `${courierConfigs.filter((c) => c.isActive).length}/${courierConfigs.length} Online`}
           </span>
           <span className="text-[11px] text-emerald-600 font-semibold mt-1 block">
             {"Adapters & Webhook Listeners Ready"}
@@ -279,10 +334,65 @@ const AdminCouriers = ({ orders, onRefresh, onOpenRiderPortal }) => {
         </div>
       </div>
 
+      {/* Global Courier Mode Switcher (Testing / Sandbox vs Live Production API) */}
+      <div className="bg-white rounded-3xl p-5 border border-neutral-200 shadow-xs flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full">
+              {"Environment Control"}
+            </span>
+            {courierConfigs.length > 0 && (
+              <span
+                className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                  courierConfigs.some((c) => c.extraCredentials?.sandboxMode)
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-emerald-100 text-emerald-800"
+                }`}
+              >
+                {courierConfigs.every((c) => c.extraCredentials?.sandboxMode)
+                  ? "All Couriers in Testing Mode"
+                  : courierConfigs.some((c) => c.extraCredentials?.sandboxMode)
+                    ? "Mixed Testing and Live Mode"
+                    : "Live Production API Mode"}
+              </span>
+            )}
+          </div>
+          <h3 className="text-sm font-black text-neutral-900 mt-1.5">
+            {"One Click Testing Mode vs Live Merchant API"}
+          </h3>
+          <p className="text-xs text-neutral-500 mt-0.5">
+            {"Enable Testing Mode to auto-configure sandbox tracing and Webhook Simulator across all couriers, or switch to Live API when real merchant keys are ready."}
+          </p>
+          {modeFeedback && (
+            <p className="text-xs font-bold text-emerald-700 mt-1.5">{modeFeedback}</p>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            disabled={isSwitchingAllMode}
+            onClick={() => handleSetAllCouriersMode("sandbox")}
+            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+          >
+            {isSwitchingAllMode ? "Updating..." : "Enable Testing Mode (All Couriers)"}
+          </button>
+          <button
+            type="button"
+            disabled={isSwitchingAllMode}
+            onClick={() => handleSetAllCouriersMode("live")}
+            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+          >
+            {isSwitchingAllMode ? "Updating..." : "Switch All to Live API"}
+          </button>
+        </div>
+      </div>
+
       {/* 4 Unified Courier Provider Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {courierConfigs.map((cfg) => {
           const meta = getProviderMeta(cfg.id);
+          const isSandbox = Boolean(cfg.extraCredentials?.sandboxMode);
           const isConfigured = Boolean(
             cfg.apiKey &&
             !cfg.apiKey.startsWith("stf_live_api_") &&
@@ -322,13 +432,17 @@ const AdminCouriers = ({ orders, onRefresh, onOpenRiderPortal }) => {
                           ? "Active"
                           : "Disabled"}
                       </span>
-                      {isConfigured ? (
+                      {isSandbox ? (
+                        <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full font-semibold">
+                          {"Sandbox Testing Mode"}
+                        </span>
+                      ) : isConfigured ? (
                         <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-0.5">
                           <Check className="w-3 h-3" /> {"Live API"}
                         </span>
                       ) : (
-                        <span className="text-[10px] text-neutral-500 font-semibold">
-                          {"Ready / Sandbox"}
+                        <span className="text-[10px] text-rose-600 font-semibold">
+                          {"Live Credentials Missing"}
                         </span>
                       )}
                     </div>
@@ -363,8 +477,8 @@ const AdminCouriers = ({ orders, onRefresh, onOpenRiderPortal }) => {
                 <div className="flex items-center justify-between text-[11px]">
                   <span className="text-neutral-500">{"Delivery Fee:"}</span>
                   <span className="font-bold text-neutral-800">
-                    {"Inside Dhaka:"} ৳{cfg.insideDhakaRate || 60} |{" "}
-                    {"Outside:"} ৳{cfg.outsideDhakaRate || 130}
+                    {"Inside Dhaka:"} ৳{cfg.insideDhakaRate ?? 0} |{" "}
+                    {"Outside:"} ৳{cfg.outsideDhakaRate ?? 0}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-[11px]">
@@ -388,110 +502,124 @@ const AdminCouriers = ({ orders, onRefresh, onOpenRiderPortal }) => {
 
       {/* Webhook Simulator & Event Testing Console */}
       <div className="bg-white rounded-3xl p-6 border border-neutral-200 shadow-xs space-y-4">
-        <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full">
-            {"Developer & Operations Testing Tool"}
-          </span>
-          <h3 className="text-base font-bold text-neutral-900 mt-2">
-            {"Live Courier Webhook Simulator"}
-          </h3>
-          <p className="text-xs text-neutral-500">
-            {"Simulate real-time status updates received from Pathao, Steadfast, RedX or eCourier servers upon parcel delivery or return:"}
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <label className="block font-bold text-neutral-700 mb-1">
-              {"Select Order:"}
-            </label>
-            <select
-              value={selectedWebhookOrder}
-              onChange={(e) => setSelectedWebhookOrder(e.target.value)}
-              className="w-full px-3 py-2 bg-neutral-50 rounded-xl border border-neutral-300 font-medium cursor-pointer"
-            >
-              {orders.map((o) => (
-                <option key={o.id} value={o.id}>
-                  #{o.id} - {o.address?.customerName} ({o.status})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block font-bold text-neutral-700 mb-1">
-              {"Courier Provider:"}
-            </label>
-            <select
-              value={selectedCourier}
-              onChange={(e) => setSelectedCourier(e.target.value)}
-              className="w-full px-3 py-2 bg-neutral-50 rounded-xl border border-neutral-300 font-medium capitalize cursor-pointer"
-            >
-              <option value="steadfast">Steadfast Courier</option>
-              <option value="pathao">Pathao Courier</option>
-              <option value="redx">RedX Logistics</option>
-              <option value="ecourier">eCourier</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block font-bold text-neutral-700 mb-1">
-              {"Simulated Event Status:"}
-            </label>
-            <select
-              value={simulatedStatus}
-              onChange={(e) => setSimulatedStatus(e.target.value)}
-              className="w-full px-3 py-2 bg-neutral-50 rounded-xl border border-neutral-300 font-medium cursor-pointer"
-            >
-              <option value="picked_up">
-                {"Picked Up (Courier picked up parcel from hub)"}
-              </option>
-              <option value="in_transit">
-                {"In Transit (En route to regional hub)"}
-              </option>
-              <option value="out_for_delivery">
-                {"Out For Delivery (In rider bag)"}
-              </option>
-              <option value="delivered">
-                {"Delivered (Successfully delivered & collected)"}
-              </option>
-              <option value="returned">
-                {"Returned (Customer unreachable or returned)"}
-              </option>
-            </select>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={handleSimulateWebhook}
-            disabled={isSimulating}
-            className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center gap-2 transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
-          >
-            <Send className="w-3.5 h-3.5" />
-            <span>
-              {isSimulating
-                ? "Sending webhook..."
-                : "Fire Test Webhook (POST /webhooks)"}
+            <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full">
+              {"Developer & Operations Testing Tool"}
             </span>
-          </button>
+            <h3 className="text-base font-bold text-neutral-900 mt-2">
+              {"Live Courier Webhook Simulator"}
+            </h3>
+            <p className="text-xs text-neutral-500">
+              {"Enable only during testing. When disabled, simulated webhook requests are blocked on the server."}
+            </p>
+          </div>
 
-          <a
-            href="/courier"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-4 py-2.5 bg-neutral-900 hover:bg-neutral-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors"
+          <button
+            type="button"
+            disabled={isTogglingSimulator}
+            onClick={handleToggleWebhookSimulator}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer disabled:opacity-50 ${
+              webhookSimulatorEnabled
+                ? "bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700"
+                : "bg-neutral-100 text-neutral-700 border-neutral-300 hover:bg-neutral-200"
+            }`}
           >
-            <Truck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>{"🛵 Live Rider Delivery Portal (/courier)"}</span>
-            <ExternalLink className="w-3 h-3 text-neutral-400" />
-          </a>
+            {isTogglingSimulator
+              ? "Updating..."
+              : webhookSimulatorEnabled
+              ? "Simulator Enabled (Click to Disable)"
+              : "Simulator Disabled (Click to Enable)"}
+          </button>
         </div>
 
-        {simulationLog && (
-          <div className="p-3 bg-neutral-900 text-emerald-400 font-mono text-[11px] rounded-xl whitespace-pre-line leading-relaxed">
-            {simulationLog}
-          </div>
+        {webhookSimulatorEnabled && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs pt-2 border-t border-neutral-100">
+              <div>
+                <label className="block font-bold text-neutral-700 mb-1">
+                  {"Select Order:"}
+                </label>
+                <select
+                  value={selectedWebhookOrder}
+                  onChange={(e) => setSelectedWebhookOrder(e.target.value)}
+                  className="w-full px-3 py-2 bg-neutral-50 rounded-xl border border-neutral-300 font-medium cursor-pointer"
+                >
+                  {orders.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {`#${o.id} • ${o.address?.customerName || "Customer"} (${formatOrderStatusLabel(o.status)})`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-neutral-700 mb-1">
+                  {"Courier Provider:"}
+                </label>
+                <select
+                  value={selectedCourier}
+                  onChange={(e) => setSelectedCourier(e.target.value)}
+                  className="w-full px-3 py-2 bg-neutral-50 rounded-xl border border-neutral-300 font-medium capitalize cursor-pointer"
+                >
+                  {courierConfigs.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-neutral-700 mb-1">
+                  {"Simulated Event Status:"}
+                </label>
+                <select
+                  value={simulatedStatus}
+                  onChange={(e) => setSimulatedStatus(e.target.value)}
+                  className="w-full px-3 py-2 bg-neutral-50 rounded-xl border border-neutral-300 font-medium cursor-pointer"
+                >
+                  {(COURIER_PROVIDER_STATUS_OPTIONS[selectedCourier] || COURIER_PROVIDER_STATUS_OPTIONS.steadfast).map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={handleSimulateWebhook}
+                disabled={isSimulating}
+                className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center gap-2 transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>
+                  {isSimulating
+                    ? "Sending webhook..."
+                    : "Fire Test Webhook (POST /webhooks)"}
+                </span>
+              </button>
+
+              <a
+                href="/courier"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2.5 bg-neutral-900 hover:bg-neutral-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-colors"
+              >
+                <Truck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{"🛵 Live Rider Delivery Portal (/courier)"}</span>
+                <ExternalLink className="w-3 h-3 text-neutral-400" />
+              </a>
+            </div>
+
+            {simulationLog && (
+              <div className="p-3 bg-neutral-900 text-emerald-400 font-mono text-[11px] rounded-xl whitespace-pre-line leading-relaxed">
+                {simulationLog}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -603,6 +731,39 @@ const AdminCouriers = ({ orders, onRefresh, onOpenRiderPortal }) => {
               {/* API Credentials & Rates Configuration Form */}
               <form onSubmit={handleSaveConfig} className="space-y-4 text-xs">
                 <div className="border-t border-neutral-100 pt-3">
+                  {/* Sandbox vs Live Production Mode Toggle */}
+                  <div className="mb-4 p-3.5 rounded-2xl bg-neutral-50 border border-neutral-200 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-bold text-neutral-900 text-xs">
+                        {"Courier Environment Mode"}
+                      </div>
+                      <div className="text-[11px] text-neutral-500">
+                        {configForm.extraCredentials?.sandboxMode
+                          ? "Sandbox Testing Mode Active — Bookings generate test tracking IDs without calling live courier APIs."
+                          : "Live Production Mode — Requires genuine merchant API credentials; never fakes bookings."}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setConfigForm((prev) => ({
+                          ...prev,
+                          extraCredentials: {
+                            ...(prev.extraCredentials || {}),
+                            sandboxMode: !prev.extraCredentials?.sandboxMode,
+                          },
+                        }))
+                      }
+                      className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border shrink-0 transition-colors cursor-pointer ${
+                        configForm.extraCredentials?.sandboxMode
+                          ? "bg-amber-100 text-amber-800 border-amber-300"
+                          : "bg-emerald-600 text-white border-emerald-600"
+                      }`}
+                    >
+                      {configForm.extraCredentials?.sandboxMode ? "Sandbox Testing ON" : "Live API Active"}
+                    </button>
+                  </div>
+
                   <h4 className="font-bold text-neutral-900 text-sm mb-3 flex items-center gap-2">
                     <Key className="w-4 h-4 text-emerald-600" />
                     <span>{"API Credentials & Rates"}</span>
@@ -611,11 +772,11 @@ const AdminCouriers = ({ orders, onRefresh, onOpenRiderPortal }) => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block font-bold text-neutral-700 mb-1">
-                        {meta.keyLabel} <span className="text-rose-500">*</span>
+                        {meta.keyLabel} {!configForm.extraCredentials?.sandboxMode && <span className="text-rose-500">*</span>}
                       </label>
                       <input
                         type="text"
-                        required
+                        required={!configForm.extraCredentials?.sandboxMode}
                         value={configForm.apiKey}
                         onChange={(e) => setConfigForm({ ...configForm, apiKey: e.target.value })}
                         placeholder={`Enter ${meta.keyLabel}`}
@@ -625,11 +786,11 @@ const AdminCouriers = ({ orders, onRefresh, onOpenRiderPortal }) => {
 
                     <div>
                       <label className="block font-bold text-neutral-700 mb-1">
-                        {meta.secretLabel} {activeCourierModal.id !== "redx" && <span className="text-rose-500">*</span>}
+                        {meta.secretLabel} {activeCourierModal.id !== "redx" && !configForm.extraCredentials?.sandboxMode && <span className="text-rose-500">*</span>}
                       </label>
                       <input
                         type="password"
-                        required={activeCourierModal.id !== "redx"}
+                        required={activeCourierModal.id !== "redx" && !configForm.extraCredentials?.sandboxMode}
                         value={configForm.secret}
                         onChange={(e) => setConfigForm({ ...configForm, secret: e.target.value })}
                         placeholder={activeCourierModal.id === "redx" ? "Optional for RedX" : `Enter ${meta.secretLabel}`}
@@ -662,15 +823,32 @@ const AdminCouriers = ({ orders, onRefresh, onOpenRiderPortal }) => {
                         />
                       </div>
                       <div>
-                        <label className="block font-bold text-neutral-700 mb-1">Pathao Store ID *</label>
+                        <label className="block font-bold text-neutral-700 mb-1">Pathao Store ID (Optional Auto)</label>
                         <input
                           type="text"
                           value={configForm.extraCredentials?.store_id || ""}
                           onChange={(e) => setConfigForm({ ...configForm, extraCredentials: { ...(configForm.extraCredentials || {}), store_id: e.target.value } })}
-                          placeholder="e.g. 12345"
+                          placeholder="Auto-detects if empty"
                           className="w-full px-3 py-2 rounded-xl border border-neutral-300 font-mono text-xs bg-neutral-50/50"
                         />
                       </div>
+                      <label className="sm:col-span-3 inline-flex items-center gap-2 text-[11px] font-semibold text-neutral-700 cursor-pointer pt-1">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(configForm.extraCredentials?.useOfficialSandbox)}
+                          onChange={(e) =>
+                            setConfigForm({
+                              ...configForm,
+                              extraCredentials: {
+                                ...(configForm.extraCredentials || {}),
+                                useOfficialSandbox: e.target.checked,
+                              },
+                            })
+                          }
+                          className="w-4 h-4 accent-amber-600 rounded"
+                        />
+                        <span>Use Pathao Official Sandbox Server (courier-api-sandbox.pathao.com) instead of Production API</span>
+                      </label>
                     </div>
                   )}
 

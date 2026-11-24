@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import {
   ShoppingBag,
   Clock,
@@ -11,9 +11,32 @@ import {
   Banknote
 } from "lucide-react";
 import { formatBDT } from "../../utils/bangladesh";
+import { formatOrderStatusLabel } from "../../utils/orderStatus";
 import { useLanguage } from "../../Context/LanguageContext";
+import { apiClient } from "../../services/api";
+import { realtimeService } from "../../services/realtime";
 import { Graph } from "./Graph";
 import { PopupGraph } from "./PopupGraph";
+
+const formatCourierLabel = (rawName) => {
+  const clean = String(rawName || "").trim();
+  if (!clean) return "";
+  const lower = clean.toLowerCase();
+  if (lower.includes("steadfast")) return "Steadfast";
+  if (lower.includes("pathao")) return "Pathao";
+  if (lower.includes("redx")) return "RedX";
+  if (lower.includes("ecourier")) return "eCourier";
+  if (lower.includes("paperfly")) return "Paperfly";
+  return clean;
+};
+
+const formatCourierJoin = (names = []) => {
+  const unique = Array.from(new Set(names.filter(Boolean)));
+  if (unique.length === 0) return "";
+  if (unique.length === 1) return unique[0];
+  if (unique.length === 2) return `${unique[0]} & ${unique[1]}`;
+  return `${unique.slice(0, -1).join(", ")} & ${unique[unique.length - 1]}`;
+};
 
 const AdminOverview = ({
   orders = [],
@@ -25,6 +48,36 @@ const AdminOverview = ({
 }) => {
   const { isEnglish } = useLanguage();
   const [isAnalyticsModalOpen, setIsAnalyticsModalOpen] = useState(false);
+  const [courierConfigs, setCourierConfigs] = useState([]);
+  const [paymentConfigs, setPaymentConfigs] = useState([]);
+
+  const loadLiveChannels = useCallback(async () => {
+    try {
+      const [couriersRes, paymentsRes] = await Promise.all([
+        apiClient.getCouriers().catch(() => []),
+        apiClient.getPaymentMethods().catch(() => []),
+      ]);
+      if (Array.isArray(couriersRes)) setCourierConfigs(couriersRes);
+      if (Array.isArray(paymentsRes)) setPaymentConfigs(paymentsRes);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    loadLiveChannels();
+    const unsub = realtimeService.subscribe((event) => {
+      if (
+        event?.type === "SETTINGS_UPDATED" ||
+        event?.type === "COURIER_UPDATED" ||
+        event?.type === "PAYMENT_UPDATED" ||
+        event?.type === "ORDER_UPDATED"
+      ) {
+        loadLiveChannels();
+      }
+    });
+    return () => {
+      if (typeof unsub === "function") unsub();
+    };
+  }, [loadLiveChannels]);
 
   // Exclude uncompleted/failed SSLCommerz orders from Overview metrics & tables
   const activeOrders = useMemo(
@@ -109,32 +162,8 @@ const AdminOverview = ({
     }
   };
 
-  // Status Badge Label
-  const getStatusBadge = (status) => {
-    if (isEnglish) return status;
-    switch (status) {
-      case "PENDING":
-        return "Pending";
-      case "CONFIRMED":
-        return "Confirmed";
-      case "COURIER_CREATED":
-        return "Courier Booked";
-      case "PICKED_UP":
-        return "Picked Up";
-      case "IN_TRANSIT":
-        return "Processing";
-      case "OUT_FOR_DELIVERY":
-        return "Out for Delivery";
-      case "DELIVERED":
-        return "Delivered";
-      case "CANCELLED":
-        return "Cancelled";
-      case "RETURNED":
-        return "Returned";
-      default:
-        return status;
-    }
-  };
+  // Status Badge Label (Normal readable text, zero underscores/hyphens)
+  const getStatusBadge = (status) => formatOrderStatusLabel(status);
 
   return (
     <div className="space-y-6">
@@ -245,7 +274,21 @@ const AdminOverview = ({
               <span className="font-bold text-neutral-900">{formatBDT(gatewaySummary.cod)}</span>
             </div>
             <div className="text-[11px] text-indigo-600 pt-0.5 flex items-center justify-between border-t border-neutral-100">
-              <span>{"SSLCommerz • MFS • COD"}</span>
+              <span>
+                {(() => {
+                  if (!Array.isArray(paymentConfigs) || paymentConfigs.length === 0) {
+                    return "Loading gateways...";
+                  }
+                  const activeLabels = [];
+                  const hasSsl = paymentConfigs.some((p) => p.isActive && String(p.id).toLowerCase() === "sslcommerz");
+                  const hasMfs = paymentConfigs.some((p) => p.isActive && ["bkash", "nagad", "rocket"].includes(String(p.id).toLowerCase()));
+                  const hasCod = paymentConfigs.some((p) => p.isActive && String(p.id).toLowerCase() === "cod");
+                  if (hasSsl) activeLabels.push("SSLCommerz");
+                  if (hasMfs) activeLabels.push("MFS");
+                  if (hasCod) activeLabels.push("COD");
+                  return activeLabels.length > 0 ? activeLabels.join(" • ") : "No active gateway";
+                })()}
+              </span>
               <span className="text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity">→</span>
             </div>
           </div>
@@ -318,7 +361,19 @@ const AdminOverview = ({
             {inTransitOrders.length} {"Orders"}
           </div>
           <div className="text-[11px] text-neutral-400 mt-1 flex items-center justify-between">
-            <span>{"Processing at Pathao & Steadfast"}</span>
+            <span>
+              {(() => {
+                const activeNames = courierConfigs
+                  .filter((c) => c && c.isActive)
+                  .map((c) => formatCourierLabel(c.name || c.id));
+                const orderProviders = inTransitOrders
+                  .map((o) => formatCourierLabel(o?.courier?.provider))
+                  .filter(Boolean);
+                const resolvedNames = activeNames.length > 0 ? activeNames : orderProviders;
+                const joined = formatCourierJoin(resolvedNames);
+                return joined ? `Processing at ${joined}` : "No active courier configured";
+              })()}
+            </span>
             <span className="text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity text-indigo-600">→</span>
           </div>
         </div>

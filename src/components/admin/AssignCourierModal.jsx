@@ -10,6 +10,7 @@ import {
 import { apiClient } from "../../services/api";
 import { realtimeService } from "../../services/realtime";
 import { useLanguage } from "../../Context/LanguageContext";
+import { formatOrderStatusLabel } from "../../utils/orderStatus";
 import { CustomModal } from "../common/CustomModal";
 
 const AssignCourierModal = ({
@@ -33,6 +34,7 @@ const AssignCourierModal = ({
       ("Please call customer before delivery.")
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSwitchingMode, setIsSwitchingMode] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
   const baseProviders = [
@@ -112,6 +114,66 @@ const AssignCourierModal = ({
     }
   }, [courierConfigs, availableProviders, provider]);
 
+  const getProviderCfg = (provId) =>
+    courierConfigs.find((c) => c.id.toLowerCase() === String(provId || "").toLowerCase());
+
+  const handleEnableSandboxAndRetry = async () => {
+    setIsSwitchingMode(true);
+    setErrorMsg("");
+    try {
+      const modeRes = await apiClient.setCourierMode({ mode: "sandbox", provider });
+      if (modeRes?.success && Array.isArray(modeRes.couriers)) {
+        setCourierConfigs(modeRes.couriers);
+        const dispatchRes = await apiClient.assignCourier({
+          orderId: order.id,
+          provider,
+          weightKg,
+          codAmount,
+          instructions,
+          targetStatus: order._targetStatus || "COURIER_CREATED",
+        });
+        if (dispatchRes.success) {
+          realtimeService.broadcast("COURIER_ASSIGNED", {
+            orderId: order.id,
+            courier: dispatchRes.shipment,
+          });
+          realtimeService.broadcast("NOTIFICATION_DISPATCHED", dispatchRes);
+          setSuccessModalData({
+            title: "Parcel Booked in Testing Mode!",
+            message: `Courier: ${provider.toUpperCase()} (Sandbox)\nTracking ID: ${dispatchRes.shipment?.trackingId || ""}\nConsignment ID: ${dispatchRes.shipment?.consignmentId || ""}`
+          });
+          return;
+        }
+        setErrorMsg(dispatchRes.message || "Failed to book in Sandbox Mode.");
+      } else {
+        setErrorMsg(modeRes?.message || "Failed to enable Sandbox Testing Mode.");
+      }
+    } catch {
+      setErrorMsg("Unable to switch courier mode. Please try again.");
+    } finally {
+      setIsSwitchingMode(false);
+    }
+  };
+
+  const handleToggleSelectedMode = async () => {
+    const cfg = getProviderCfg(provider);
+    const currentlySandbox = Boolean(cfg?.extraCredentials?.sandboxMode);
+    setIsSwitchingMode(true);
+    setErrorMsg("");
+    try {
+      const res = await apiClient.setCourierMode({
+        mode: currentlySandbox ? "live" : "sandbox",
+        provider,
+      });
+      if (res?.success && Array.isArray(res.couriers)) {
+        setCourierConfigs(res.couriers);
+      }
+    } catch {
+    } finally {
+      setIsSwitchingMode(false);
+    }
+  };
+
   const handleDispatch = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -181,9 +243,33 @@ const AssignCourierModal = ({
         <form onSubmit={handleDispatch} className="space-y-4 pt-4 text-xs">
           {/* Provider Selection */}
           <div>
-            <label className="block font-bold text-neutral-700 mb-2">
-              {"Select Courier Provider:"}
-            </label>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <label className="block font-bold text-neutral-700">
+                {"Select Courier Provider:"}
+              </label>
+              {availableProviders.length > 0 && (() => {
+                const cfg = getProviderCfg(provider);
+                const isSandbox = Boolean(cfg?.extraCredentials?.sandboxMode);
+                return (
+                  <button
+                    type="button"
+                    disabled={isSwitchingMode}
+                    onClick={handleToggleSelectedMode}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-colors cursor-pointer disabled:opacity-50 ${
+                      isSandbox
+                        ? "bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100"
+                        : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                    }`}
+                  >
+                    {isSwitchingMode
+                      ? "Switching..."
+                      : isSandbox
+                        ? "Testing Mode ON (Switch to Live)"
+                        : "Live API Active (Switch to Test Mode)"}
+                  </button>
+                );
+              })()}
+            </div>
             {isLoadingCouriers ? (
               <div className="py-6 flex items-center justify-center gap-2 text-neutral-400">
                 <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
@@ -203,27 +289,43 @@ const AssignCourierModal = ({
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {availableProviders.map((p) => (
-                  <div
-                    key={p.id}
-                    onClick={() => setProvider(p.id)}
-                    className={`p-3 rounded-2xl border-2 cursor-pointer transition-all ${
-                      provider === p.id
-                        ? `${p.color} border-current shadow-xs`
-                        : "border-neutral-200 hover:border-neutral-300"
-                    }`}
-                  >
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="font-bold text-neutral-900">{p.name}</span>
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600">
-                        {p.badge}
-                      </span>
+                {availableProviders.map((p) => {
+                  const cfg = getProviderCfg(p.id);
+                  const isSandbox = Boolean(cfg?.extraCredentials?.sandboxMode);
+                  const hasKey = Boolean(cfg?.apiKey && String(cfg.apiKey).trim());
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => {
+                        setProvider(p.id);
+                        setErrorMsg("");
+                      }}
+                      className={`p-3 rounded-2xl border-2 cursor-pointer transition-all ${
+                        provider === p.id
+                          ? `${p.color} border-current shadow-xs`
+                          : "border-neutral-200 hover:border-neutral-300"
+                      }`}
+                    >
+                      <div className="flex justify-between items-center gap-1 mb-1">
+                        <span className="font-bold text-neutral-900">{p.name}</span>
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                            isSandbox
+                              ? "bg-amber-100 text-amber-800"
+                              : hasKey
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-neutral-100 text-neutral-600"
+                          }`}
+                        >
+                          {isSandbox ? "Test Mode" : hasKey ? "Live Ready" : p.badge}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-neutral-500 line-clamp-2 leading-relaxed">
+                        {p.tagline}
+                      </p>
                     </div>
-                    <p className="text-[11px] text-neutral-500 line-clamp-2 leading-relaxed">
-                      {p.tagline}
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -279,9 +381,26 @@ const AssignCourierModal = ({
           </div>
 
           {errorMsg && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-              <span>{errorMsg}</span>
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 space-y-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <span>{errorMsg}</span>
+              </div>
+              {errorMsg.toLowerCase().includes("credentials") && (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-rose-200/70">
+                  <span className="text-[11px] text-rose-600">
+                    Want to test booking without live merchant API keys right now?
+                  </span>
+                  <button
+                    type="button"
+                    disabled={isSwitchingMode}
+                    onClick={handleEnableSandboxAndRetry}
+                    className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-50 shrink-0"
+                  >
+                    {isSwitchingMode ? "Enabling Testing Mode..." : "Enable Testing Mode & Book Now"}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

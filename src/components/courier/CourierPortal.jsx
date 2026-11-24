@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Truck,
   Package,
@@ -16,6 +16,7 @@ import {
   LogOut
 } from "lucide-react";
 import { formatBDT, formatBDTDateTime } from "../../utils/bangladesh";
+import { formatOrderStatusLabel } from "../../utils/orderStatus";
 import { apiClient } from "../../services/api";
 import { realtimeService } from "../../services/realtime";
 import { CustomModal } from "../common/CustomModal";
@@ -33,32 +34,118 @@ const CourierPortal = ({
   const { isEnglish, t } = useLanguage();
   const [activeTab, setActiveTab] = useState("ALL");
   const [selectedProviderFilter, setSelectedProviderFilter] = useState("ALL");
-  const [isRiderAuthenticated, setIsRiderAuthenticated] = useState(() => {
-    return sessionStorage.getItem("amardokan_rider_auth") === "true";
-  });
+  const [isRiderAuthenticated, setIsRiderAuthenticated] = useState(false);
+  const [isVerifyingSession, setIsVerifyingSession] = useState(true);
+  const [ridersList, setRidersList] = useState([]);
+  const [isLoadingRiders, setIsLoadingRiders] = useState(true);
+  const [selectedRiderId, setSelectedRiderId] = useState("");
+  const [manualUsername, setManualUsername] = useState("");
   const [riderPin, setRiderPin] = useState("");
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [authError, setAuthError] = useState("");
-  const [riderName, setRiderName] = useState("Mahfuzur Rahman (Steadfast #77)");
+  const [authenticatedRider, setAuthenticatedRider] = useState(null);
+  const [riderName, setRiderName] = useState("");
   const [updatingOrderId, setUpdatingOrderId] = useState(null);
   const [actionSuccessMsg, setActionSuccessMsg] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusErrorModal, setStatusErrorModal] = useState(null);
-  const validRiderPin = import.meta.env.VITE_COURIER_RIDER_PIN || "1234";
 
-  const handleRiderLogin = (e) => {
+  const loadRiders = useCallback(async () => {
+    setIsLoadingRiders(true);
+    try {
+      const res = await apiClient.getCourierRiders();
+      const list = Array.isArray(res?.riders) ? res.riders : [];
+      setRidersList(list);
+      if (list.length > 0) {
+        setSelectedRiderId((prev) => (prev && list.some((r) => r.id === prev) ? prev : list[0].id));
+      }
+    } catch {
+      setRidersList([]);
+    } finally {
+      setIsLoadingRiders(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadRiders();
+  }, [loadRiders]);
+
+  useEffect(() => {
+    let active = true;
+    const verifyExistingSession = async () => {
+      try {
+        const riderToken = sessionStorage.getItem("amardokan_rider_token");
+        if (!riderToken) {
+          if (active) {
+            setIsRiderAuthenticated(false);
+            setIsVerifyingSession(false);
+          }
+          return;
+        }
+        const res = await apiClient.verifyStaffToken(riderToken, "rider");
+        if (active) {
+          if (res?.success && res?.valid && res?.user) {
+            const label = res.user.notes ? `${res.user.name} (${res.user.notes})` : res.user.name;
+            setAuthenticatedRider(res.user);
+            setRiderName(label);
+            sessionStorage.setItem("amardokan_rider_auth", "true");
+            sessionStorage.setItem("amardokan_rider_user", JSON.stringify(res.user));
+            setIsRiderAuthenticated(true);
+          } else {
+            sessionStorage.removeItem("amardokan_rider_auth");
+            sessionStorage.removeItem("amardokan_rider_token");
+            sessionStorage.removeItem("amardokan_rider_user");
+            setIsRiderAuthenticated(false);
+          }
+          setIsVerifyingSession(false);
+        }
+      } catch {
+        if (active) {
+          setIsRiderAuthenticated(false);
+          setIsVerifyingSession(false);
+        }
+      }
+    };
+    verifyExistingSession();
+    return () => { active = false; };
+  }, []);
+
+  const handleRiderLogin = async (e) => {
     e.preventDefault();
-    if (riderPin.trim() === validRiderPin) {
-      sessionStorage.setItem("amardokan_rider_auth", "true");
-      setIsRiderAuthenticated(true);
-      setAuthError("");
-    } else {
-      setAuthError(
-        "Invalid Rider PIN. Please verify your credentials."
-      );
+    setAuthError("");
+    setIsLoggingIn(true);
+    try {
+      const useManual = selectedRiderId === "__manual__" || ridersList.length === 0;
+      const res = await apiClient.courierRiderLogin({
+        riderId: useManual ? "" : selectedRiderId,
+        username: useManual ? manualUsername.trim().toLowerCase() : "",
+        pin: riderPin.trim(),
+      });
+      if (res?.success && res?.rider) {
+        const r = res.rider;
+        const displayLabel = r.notes ? `${r.name} (${r.notes})` : r.name;
+        setAuthenticatedRider(r);
+        setRiderName(displayLabel);
+        setRiderPin("");
+        setIsRiderAuthenticated(true);
+      } else {
+        setAuthError(res?.message || "Invalid Rider credentials or PIN. Please check with Admin.");
+      }
+    } catch {
+      setAuthError("Unable to reach authentication server. Please check connection.");
+    } finally {
+      setIsLoggingIn(false);
     }
   };
+
   const handleRiderLogout = () => {
-    sessionStorage.removeItem("amardokan_rider_auth");
+    try {
+      sessionStorage.removeItem("amardokan_rider_auth");
+      sessionStorage.removeItem("amardokan_rider_token");
+      sessionStorage.removeItem("amardokan_rider_user");
+    } catch {}
+    setAuthenticatedRider(null);
+    setRiderName("");
     setIsRiderAuthenticated(false);
   };
   const courierOrders = orders.filter((o) => o.courier || ["PENDING", "CONFIRMED", "COURIER_CREATED", "PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED"].includes(o.status));
@@ -112,7 +199,19 @@ const CourierPortal = ({
   const inHandCount = courierOrders.filter((o) => o.status === "PICKED_UP" || o.status === "IN_TRANSIT").length;
   const outForDeliveryCount = courierOrders.filter((o) => o.status === "OUT_FOR_DELIVERY").length;
   const deliveredCount = courierOrders.filter((o) => o.status === "DELIVERED").length;
+  if (isVerifyingSession) {
+    return (
+      <div className="min-h-screen bg-neutral-950 flex flex-col justify-center items-center p-4 text-neutral-300 text-xs">
+        <div className="flex items-center gap-2.5">
+          <span className="inline-block w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          <span>Verifying rider portal session...</span>
+        </div>
+      </div>
+    );
+  }
+
   if (!isRiderAuthenticated) {
+    const showManualInput = selectedRiderId === "__manual__" || (!isLoadingRiders && ridersList.length === 0);
     return <div className="min-h-screen bg-neutral-950 flex flex-col justify-center items-center p-4 text-neutral-100 relative">
         <div className="max-w-md w-full bg-neutral-900 border border-neutral-800 rounded-3xl p-8 shadow-2xl space-y-6">
           <div className="flex items-center justify-between">
@@ -122,6 +221,15 @@ const CourierPortal = ({
             >
               <ArrowLeft className="w-4 h-4" />
               <span>{"Back to Store"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={loadRiders}
+              className="inline-flex items-center gap-1 text-[11px] text-neutral-400 hover:text-emerald-400 transition-colors cursor-pointer"
+              title="Refresh active riders from Admin Panel"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingRiders ? "animate-spin" : ""}`} />
+              <span>Refresh List</span>
             </button>
           </div>
 
@@ -134,7 +242,7 @@ const CourierPortal = ({
               {"Rider & Delivery Hub Login"}
             </h2>
             <p className="text-xs text-neutral-400 mt-1.5">
-              {"Enter your rider PIN to update parcel pickups and delivery status."}
+              {"Sign in with the Delivery Rider account & PIN configured by your Admin."}
             </p>
           </div>
 
@@ -144,49 +252,70 @@ const CourierPortal = ({
             </div>}
 
           <form onSubmit={handleRiderLogin} className="space-y-4 text-xs">
-            <div>
-              <label className="block font-semibold text-neutral-300 mb-1.5">
-                {"Select Rider"}
-              </label>
-              <select
-                value={riderName}
-                onChange={(e) => setRiderName(e.target.value)}
-                className="w-full bg-neutral-800 border border-neutral-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:border-emerald-500 focus:outline-hidden"
-              >
-                <option value="Mahfuzur Rahman (Steadfast #77)">
-                  {"Mahfuzur Rahman (Steadfast)"}
-                </option>
-                <option value="Rakibul Islam (Pathao #12)">
-                  {"Rakibul Islam (Pathao)"}
-                </option>
-                <option value="Sujon Mahmud (RedX #04)">
-                  {"Sujan Mahmud (RedX)"}
-                </option>
-                <option value={`${shopName} Express Rider`}>
-                  {`${shopName} Express Rider`}
-                </option>
-              </select>
-            </div>
+            {ridersList.length > 0 && (
+              <div>
+                <label className="block font-semibold text-neutral-300 mb-1.5">
+                  {"Select Rider / Logistics Staff"}
+                </label>
+                <select
+                  value={selectedRiderId}
+                  onChange={(e) => {
+                    setSelectedRiderId(e.target.value);
+                    setAuthError("");
+                  }}
+                  className="w-full bg-neutral-800 border border-neutral-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:border-emerald-500 focus:outline-hidden"
+                >
+                  {ridersList.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name} (@{r.username} • {r.role}){r.notes ? ` — ${r.notes}` : ""}
+                    </option>
+                  ))}
+                  <option value="__manual__">Enter Username / Phone Manually...</option>
+                </select>
+              </div>
+            )}
+
+            {showManualInput && (
+              <div>
+                <label className="block font-semibold text-neutral-300 mb-1.5">
+                  {"Rider Username or Phone"}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={manualUsername}
+                  onChange={(e) => setManualUsername(e.target.value)}
+                  placeholder="Enter staff username or phone"
+                  className="w-full bg-neutral-800 border border-neutral-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:border-emerald-500 focus:outline-hidden"
+                />
+                {!isLoadingRiders && ridersList.length === 0 && (
+                  <p className="text-[11px] text-amber-300/90 mt-1.5">
+                    No active riders found. Admin can add Delivery Riders in Staff &amp; Access Control.
+                  </p>
+                )}
+              </div>
+            )}
 
             <div>
               <label className="block font-semibold text-neutral-300 mb-1.5">
-                {"Rider PIN"}
+                {"Rider PIN / Password"}
               </label>
               <input
                 type="password"
                 required
                 value={riderPin}
                 onChange={(e) => setRiderPin(e.target.value)}
-                placeholder={"Enter PIN"}
+                placeholder={"Enter your assigned PIN / Password"}
                 className="w-full bg-neutral-800 border border-neutral-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-hidden font-mono"
               />
             </div>
 
             <button
               type="submit"
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 font-bold text-sm text-white rounded-xl transition-colors shadow-lg shadow-emerald-900/30 cursor-pointer"
+              disabled={isLoggingIn}
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 font-bold text-sm text-white rounded-xl transition-colors shadow-lg shadow-emerald-900/30 cursor-pointer disabled:opacity-60"
             >
-              {"Enter Rider Hub"}
+              {isLoggingIn ? "Verifying Credentials..." : "Enter Rider Hub"}
             </button>
           </form>
         </div>
@@ -198,6 +327,8 @@ const CourierPortal = ({
         onBackToStore={onBackToStore}
         riderName={riderName}
         setRiderName={setRiderName}
+        riders={ridersList}
+        canSwitchRider={authenticatedRider?.role === "ADMIN" || authenticatedRider?.role === "MANAGER"}
         onRefresh={onRefresh}
         handleRiderLogout={handleRiderLogout}
       />
@@ -442,7 +573,7 @@ const CourierPortal = ({
               <div className="pt-3 border-t border-neutral-800 flex flex-wrap items-center justify-between gap-3">
                 <div className="text-xs text-neutral-400 flex items-center gap-2">
                   <Clock className="w-3.5 h-3.5 text-neutral-400" />
-                  <span>{"Current Status:"} <strong className="text-white">{order.status}</strong></span>
+                  <span>{"Current Status:"} <strong className="text-white">{formatOrderStatusLabel(order.status)}</strong></span>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">

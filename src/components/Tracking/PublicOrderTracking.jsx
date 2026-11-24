@@ -83,7 +83,7 @@ const PublicOrderTracking = ({
 }) => {
   const { isEnglish, t } = useLanguage();
   const { themeConfig } = useThemeConfig();
-  const activeHotline = themeConfig?.shop?.hotline || themeConfig?.header?.hotline || "09612-345678";
+  const activeHotline = String(themeConfig?.shop?.hotline ?? themeConfig?.header?.hotline ?? "").trim();
   const [orderIdInput, setOrderIdInput] = useState(initialOrderId);
   const [phoneInput, setPhoneInput] = useState(initialPhone);
   const [selectedDropdownOrderId, setSelectedDropdownOrderId] = useState(initialOrderId || "");
@@ -103,7 +103,7 @@ const PublicOrderTracking = ({
     if (!local) return null;
     const rawPhone = local.address?.phone || phoneInput || currentUser?.phone || "";
     const maskedPhone =
-      rawPhone.length >= 6 ? `${rawPhone.slice(0, 3)}*****${rawPhone.slice(-3)}` : rawPhone || "017*****000";
+      rawPhone.length >= 6 ? `${rawPhone.slice(0, 3)}*****${rawPhone.slice(-3)}` : rawPhone || "N/A";
     const courierObj =
       local.courier && typeof local.courier === "object" && Object.keys(local.courier).length > 0
         ? local.courier
@@ -137,8 +137,8 @@ const PublicOrderTracking = ({
       addressSummary: {
         customerName: local.address?.customerName || currentUser?.name || ("Customer"),
         maskedPhone,
-        district: local.address?.district || currentUser?.district || "Dhaka",
-        thana: local.address?.thana || currentUser?.thana || "Mirpur"
+        district: local.address?.district || currentUser?.district || "",
+        thana: local.address?.thana || currentUser?.thana || ""
       }
     };
   };

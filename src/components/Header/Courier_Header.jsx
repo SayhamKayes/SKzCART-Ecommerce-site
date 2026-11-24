@@ -12,6 +12,8 @@ const Courier_Header = ({
   onBackToStore,
   riderName,
   setRiderName,
+  riders = [],
+  canSwitchRider = false,
   onRefresh,
   handleRiderLogout
 }) => {
@@ -48,28 +50,35 @@ const Courier_Header = ({
           </div>
         </div>
 
-        {/* Rider Selector & Controls */}
+        {/* Dynamic Authenticated Rider Display / Switcher */}
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5 bg-neutral-900 border border-neutral-800 px-3 py-1.5 rounded-xl text-xs">
-            <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <select
-              value={riderName}
-              onChange={(e) => setRiderName && setRiderName(e.target.value)}
-              className="bg-transparent text-white font-semibold focus:outline-hidden text-xs cursor-pointer"
-            >
-              <option value="Mahfuzur Rahman (Steadfast)" className="bg-neutral-900">
-                Mahfuzur Rahman (Steadfast)
-              </option>
-              <option value="Rakibul Islam (Pathao)" className="bg-neutral-900">
-                Rakibul Islam (Pathao)
-              </option>
-              <option value="Sujan Mahmud (RedX)" className="bg-neutral-900">
-                Sujan Mahmud (RedX)
-              </option>
-              <option value={`${shopName} Express Rider`} className="bg-neutral-900">
-                {`${shopName} Express Rider`}
-              </option>
-            </select>
+            <UserCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            {canSwitchRider && Array.isArray(riders) && riders.length > 0 ? (
+              <select
+                value={riderName}
+                onChange={(e) => setRiderName && setRiderName(e.target.value)}
+                className="bg-transparent text-white font-semibold focus:outline-hidden text-xs cursor-pointer"
+              >
+                {riders.map((r) => {
+                  const displayLabel = r.notes ? `${r.name} (${r.notes})` : r.name;
+                  return (
+                    <option key={r.id} value={displayLabel} className="bg-neutral-900">
+                      {displayLabel}
+                    </option>
+                  );
+                })}
+                {!riders.some((r) => (r.notes ? `${r.name} (${r.notes})` : r.name) === riderName) && riderName && (
+                  <option value={riderName} className="bg-neutral-900">
+                    {riderName}
+                  </option>
+                )}
+              </select>
+            ) : (
+              <span className="text-white font-semibold truncate max-w-[200px]">
+                {riderName || "Authenticated Rider"}
+              </span>
+            )}
           </div>
 
           {onRefresh && (
