@@ -14,3 +14,4 @@ venv/
 backend/venv/
 scratch/
 dist/
+vercel.json
