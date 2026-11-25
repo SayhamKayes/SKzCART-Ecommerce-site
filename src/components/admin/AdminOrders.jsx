@@ -42,7 +42,8 @@ const AdminOrders = ({
   onOpenAssignCourier,
   currentRole,
   initialStatusFilter = "ALL",
-  initialPaymentMethodFilter = "ALL"
+  initialPaymentMethodFilter = "ALL",
+  navKey = 0,
 }) => {
   const { isEnglish, t } = useLanguage();
   const { themeConfig } = useThemeConfig();
@@ -80,6 +81,21 @@ const AdminOrders = ({
   const [isReconModalOpen, setIsReconModalOpen] = useState(initialStatusFilter === "RECONCILIATION");
   const [reconSelectedMethod, setReconSelectedMethod] = useState(initialPaymentMethodFilter || "ALL");
   const [reconCurrentPage, setReconCurrentPage] = useState(1);
+
+  useEffect(() => {
+    const nextStatus =
+      initialStatusFilter === "RECONCILIATION" || initialStatusFilter === "GATEWAY_TXNS"
+        ? "ALL"
+        : initialStatusFilter || "ALL";
+    setSelectedStatusFilter(nextStatus);
+    setPaymentMethodFilter("ALL");
+    setPaymentStatusFilter("ALL");
+    setSearchQuery("");
+    setCurrentPage(1);
+    setIsReconModalOpen(initialStatusFilter === "RECONCILIATION");
+    setReconSelectedMethod(initialPaymentMethodFilter || "ALL");
+    setReconCurrentPage(1);
+  }, [initialStatusFilter, initialPaymentMethodFilter, navKey]);
   const [selectedReconOrderIds, setSelectedReconOrderIds] = useState([]);
   const [paymentDeleteDialog, setPaymentDeleteDialog] = useState(null); // { scope: 'txn' | 'recon', mode: 'single' | 'bulk', item?: obj }
   const [isDeletingPaymentItems, setIsDeletingPaymentItems] = useState(false);
