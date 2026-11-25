@@ -158,6 +158,23 @@ export const AppRouter = ({
   const { isEnglish } = useLanguage();
   const [orderStatusFilter, setOrderStatusFilter] = React.useState('ALL');
   const [orderPaymentMethodFilter, setOrderPaymentMethodFilter] = React.useState('ALL');
+  const [orderNavKey, setOrderNavKey] = React.useState(0);
+
+  const navigateAdminTab = React.useCallback((tabId) => {
+    if (tabId === 'orders') {
+      setOrderStatusFilter('ALL');
+      setOrderPaymentMethodFilter('ALL');
+      setOrderNavKey((k) => k + 1);
+    }
+    setAdminTab(tabId);
+  }, [setAdminTab]);
+
+  const openOrdersWithFilter = React.useCallback((status = 'ALL', paymentMethod = 'ALL') => {
+    setOrderStatusFilter(status || 'ALL');
+    setOrderPaymentMethodFilter(paymentMethod || 'ALL');
+    setOrderNavKey((k) => k + 1);
+    setAdminTab('orders');
+  }, [setAdminTab]);
 
   // Strict Tab Guard: Automatically redirects if the active tab is forbidden for the current role
   React.useEffect(() => {
@@ -392,7 +409,7 @@ export const AppRouter = ({
       <Suspense fallback={<RouteLoadingSpinner />}>
         <AdminLayout
           currentTab={adminTab}
-          setCurrentTab={setAdminTab}
+          setCurrentTab={navigateAdminTab}
           currentRole={adminRole}
           setCurrentRole={setAdminRole}
           onExitToStore={() => navigateToView('store')}
@@ -414,17 +431,9 @@ export const AppRouter = ({
             <AdminOverview
               orders={orders}
               products={products}
-              onViewOrders={(status = 'ALL', paymentMethod = 'ALL') => {
-                setOrderStatusFilter(status);
-                setOrderPaymentMethodFilter(paymentMethod);
-                setAdminTab('orders');
-              }}
-              onSelectOrderStatusFilter={(status, paymentMethod = 'ALL') => {
-                setOrderStatusFilter(status);
-                setOrderPaymentMethodFilter(paymentMethod);
-                setAdminTab('orders');
-              }}
-              onNavigateTab={(tab) => setAdminTab(tab)}
+              onViewOrders={openOrdersWithFilter}
+              onSelectOrderStatusFilter={openOrdersWithFilter}
+              onNavigateTab={navigateAdminTab}
               onSelectOrder={(ord) => setAdminSelectedOrder(ord)}
             />
           )}
@@ -434,11 +443,8 @@ export const AppRouter = ({
               products={products}
               coupons={coupons}
               onRefreshCoupons={refreshData}
-              onNavigateTab={(tab) => setAdminTab(tab)}
-              onSelectOrderStatusFilter={(status) => {
-                setOrderStatusFilter(status);
-                setAdminTab('orders');
-              }}
+              onNavigateTab={navigateAdminTab}
+              onSelectOrderStatusFilter={(status) => openOrdersWithFilter(status, 'ALL')}
             />
           )}
           {adminTab === 'themesColors' && (
@@ -466,6 +472,7 @@ export const AppRouter = ({
               currentRole={adminRole}
               initialStatusFilter={orderStatusFilter}
               initialPaymentMethodFilter={orderPaymentMethodFilter}
+              navKey={orderNavKey}
             />
           )}
           {adminTab === 'products' && (
@@ -505,7 +512,7 @@ export const AppRouter = ({
                 landingPages={landingPages}
                 orders={orders}
                 sectionMode="pixel"
-                onNavigateTab={(tab) => setAdminTab(tab)}
+                onNavigateTab={navigateAdminTab}
                 onSelectCampaignProduct={(prodId) => {
                   if (typeof updateThemeConfig === 'function') {
                     updateThemeConfig('campaign', { activeProductId: prodId });
@@ -522,7 +529,7 @@ export const AppRouter = ({
                 landingPages={landingPages}
                 orders={orders}
                 sectionMode="campaigns"
-                onNavigateTab={(tab) => setAdminTab(tab)}
+                onNavigateTab={navigateAdminTab}
                 onSelectCampaignProduct={(prodId) => {
                   if (typeof updateThemeConfig === 'function') {
                     updateThemeConfig('campaign', { activeProductId: prodId });
