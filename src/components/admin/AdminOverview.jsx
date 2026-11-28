@@ -506,7 +506,7 @@ const AdminOverview = ({
 
         {/* Column 2: Total Earnings Analytics Graph Component with Modal Trigger */}
         <Graph
-          orders={orders}
+          orders={activeOrders}
           isEnglish={isEnglish}
           totalRevenue={totalRevenue}
           onOpenModal={() => setIsAnalyticsModalOpen(true)}
@@ -571,7 +571,7 @@ const AdminOverview = ({
       <PopupGraph
         isOpen={isAnalyticsModalOpen}
         onClose={() => setIsAnalyticsModalOpen(false)}
-        orders={orders}
+        orders={activeOrders}
         products={products}
         isEnglish={isEnglish}
       />

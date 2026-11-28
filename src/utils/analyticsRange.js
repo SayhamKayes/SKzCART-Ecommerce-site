@@ -12,6 +12,22 @@ export const TIMEFRAME_OPTIONS = [
   { key: "all", label: "All Time" },
 ];
 
+export const POPUP_TIMEFRAME_OPTIONS = [
+  { key: "7d", label: "Last 7 Days" },
+  { key: "30d", label: "Monthly" },
+  { key: "3m", label: "3 Months" },
+  { key: "6m", label: "6 Months" },
+  { key: "1y", label: "Yearly" },
+  { key: "custom", label: "Custom" },
+  { key: "all", label: "All Time" },
+];
+
+export const isSettledOrderEarning = (order) => {
+  const status = String(order?.status || "").toUpperCase();
+  const payStatus = String(order?.paymentStatus || "").toUpperCase();
+  return payStatus === "PAID" || status === "DELIVERED";
+};
+
 const pad2 = (n) => String(n).padStart(2, "0");
 
 /**
@@ -53,7 +69,8 @@ export const extractLocalISODate = (raw) => {
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
     return parseLocalISODate(str) ? str : "";
   }
-  const dt = new Date(str);
+  const normalized = /^\d{4}-\d{2}-\d{2}\s+\d{2}:/.test(str) ? str.replace(/\s+/, "T") : str;
+  const dt = new Date(normalized);
   return Number.isNaN(dt.getTime()) ? "" : toLocalISODate(dt);
 };
 
@@ -83,7 +100,7 @@ const getWeekStartLocal = (d) => {
 };
 
 const pickGranularity = (timeframeKey, daySpan) => {
-  if (timeframeKey === "6m" || timeframeKey === "1y") return "monthly";
+  if (timeframeKey === "3m" || timeframeKey === "6m" || timeframeKey === "1y") return "monthly";
   if (daySpan > 150) return "monthly";
   if (daySpan > 45) return "weekly";
   return "daily";
@@ -112,6 +129,8 @@ export const resolveAnalyticsBounds = (
     startDate = addDaysLocal(today, -13);
   } else if (timeframeKey === "30d") {
     startDate = addDaysLocal(today, -29);
+  } else if (timeframeKey === "3m") {
+    startDate = new Date(today.getFullYear(), today.getMonth() - 2, 1);
   } else if (timeframeKey === "6m") {
     startDate = new Date(today.getFullYear(), today.getMonth() - 5, 1);
   } else if (timeframeKey === "1y") {

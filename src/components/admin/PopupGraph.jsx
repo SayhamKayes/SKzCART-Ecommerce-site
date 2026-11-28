@@ -8,15 +8,21 @@ import {
   DollarSign,
   Package,
   Layers,
-  ArrowUpRight,
-  Filter,
   CheckCircle2,
-  Clock,
   Sparkles,
   ChevronLeft,
   ChevronRight
 } from "lucide-react";
 import { formatBDT } from "../../utils/bangladesh";
+import {
+  POPUP_TIMEFRAME_OPTIONS,
+  extractLocalISODate,
+  getDefaultCustomRange,
+  resolveAnalyticsBounds,
+  isWithinISORange,
+  buildAnalyticsSeries,
+  isSettledOrderEarning,
+} from "../../utils/analyticsRange";
 
 const PopupGraph = ({
   isOpen = false,
@@ -25,18 +31,26 @@ const PopupGraph = ({
   products = [],
   isEnglish = true
 }) => {
-  const [timeframe, setTimeframe] = useState("week"); // 'day', 'week', 'month', '3months', '6months', 'year', 'custom'
-  const [customStartDate, setCustomStartDate] = useState("");
-  const [customEndDate, setCustomEndDate] = useState("");
+  const [timeframe, setTimeframe] = useState("7d"); // Default: Last 7 Days ('7d' | '30d' | '3m' | '6m' | '1y' | 'custom' | 'all')
+  const [customRange, setCustomRange] = useState(() => getDefaultCustomRange());
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [hoveredPointIndex, setHoveredPointIndex] = useState(null);
 
+  // Reset to Last 7 Days whenever modal opens so it matches Dashboard Overview 1:1
+  useEffect(() => {
+    if (isOpen) {
+      setTimeframe("7d");
+      setHoveredPointIndex(null);
+    }
+  }, [isOpen]);
+
   // Reset to first page when search query or timeframe changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, timeframe]);
+    setHoveredPointIndex(null);
+  }, [searchQuery, timeframe, customRange.start, customRange.end]);
 
   // Close on Escape key
   useEffect(() => {
@@ -61,205 +75,97 @@ const PopupGraph = ({
     };
   }, [isOpen]);
 
-  // Determine latest order date for smart historical anchoring
-  const anchorDate = useMemo(() => {
-    let latest = new Date(0);
-    orders.forEach((o) => {
-      if (o.createdAt) {
-        const d = new Date(String(o.createdAt).replace(" ", "T"));
-        if (!isNaN(d.getTime()) && d > latest) {
-          latest = d;
-        }
-      }
-    });
-    return latest.getTime() > 0 ? latest : new Date();
-  }, [orders]);
+  // Exact same bounds & real time-series logic as AdminAnalytics & Overview Graph
+  const { bounds, filteredOrders, chartPointsData } = useMemo(() => {
+    const resolvedBounds = resolveAnalyticsBounds(
+      timeframe,
+      customRange.start,
+      customRange.end,
+      orders
+    );
+    const scoped = orders.filter((o) =>
+      isWithinISORange(
+        extractLocalISODate(o?.createdAt),
+        resolvedBounds.startISO,
+        resolvedBounds.endISO
+      )
+    );
+    const series = buildAnalyticsSeries(scoped, resolvedBounds).map((bucket) => ({
+      key: bucket.key,
+      label: bucket.label,
+      display: bucket.fullLabel || bucket.label,
+      revenue: Number(bucket.earnings || 0),
+      orders: Number(bucket.orders || 0),
+    }));
 
-  // Initialize custom dates if empty
-  useEffect(() => {
-    if (!customStartDate || !customEndDate) {
-      const end = new Date(anchorDate);
-      const start = new Date(anchorDate);
-      start.setDate(start.getDate() - 30);
-      setCustomEndDate(end.toISOString().slice(0, 10));
-      setCustomStartDate(start.toISOString().slice(0, 10));
-    }
-  }, [anchorDate, customStartDate, customEndDate]);
+    return {
+      bounds: resolvedBounds,
+      filteredOrders: scoped,
+      chartPointsData: series,
+    };
+  }, [orders, timeframe, customRange.start, customRange.end]);
 
-  // Filter orders according to selected timeframe
-  const filteredOrders = useMemo(() => {
-    if (!orders || orders.length === 0) return [];
-
-    const anchorMs = anchorDate.getTime();
-    const oneDayMs = 24 * 60 * 60 * 1000;
-
-    return orders.filter((o) => {
-      if (!o.createdAt) return true;
-      const orderDate = new Date(String(o.createdAt).replace(" ", "T"));
-      if (isNaN(orderDate.getTime())) return true;
-      const diffMs = anchorMs - orderDate.getTime();
-
-      switch (timeframe) {
-        case "day":
-          // Within same calendar day or last 24h
-          return diffMs <= oneDayMs && diffMs >= -oneDayMs;
-        case "week":
-          // Last 7 days
-          return diffMs <= 7 * oneDayMs && diffMs >= -oneDayMs;
-        case "month":
-          // Last 30 days
-          return diffMs <= 30 * oneDayMs && diffMs >= -oneDayMs;
-        case "3months":
-          // Last 90 days
-          return diffMs <= 90 * oneDayMs && diffMs >= -oneDayMs;
-        case "6months":
-          // Last 180 days
-          return diffMs <= 180 * oneDayMs && diffMs >= -oneDayMs;
-        case "year":
-          // Last 365 days
-          return diffMs <= 365 * oneDayMs && diffMs >= -oneDayMs;
-        case "custom":
-          if (!customStartDate || !customEndDate) return true;
-          const start = new Date(customStartDate + "T00:00:00").getTime();
-          const end = new Date(customEndDate + "T23:59:59").getTime();
-          const oTime = orderDate.getTime();
-          return oTime >= start && oTime <= end;
-        default:
-          return true;
-      }
-    });
-  }, [orders, timeframe, anchorDate, customStartDate, customEndDate]);
-
-  // KPIs for the selected timeframe
+  // KPIs for the selected timeframe (strictly matching AdminAnalytics)
   const filteredRevenue = useMemo(() => {
     return filteredOrders.reduce(
-      (sum, o) =>
-        sum +
-        (o.paymentStatus === "PAID" || o.status === "DELIVERED" || o.status === "CONFIRMED" || o.status === "IN_TRANSIT"
-          ? Number(o.total) || 0
-          : 0),
+      (sum, o) => sum + (isSettledOrderEarning(o) ? Number(o.total) || 0 : 0),
       0
     );
   }, [filteredOrders]);
 
   const deliveredOrdersCount = useMemo(() => {
-    return filteredOrders.filter((o) => o.status === "DELIVERED").length;
+    return filteredOrders.filter(
+      (o) => String(o.status || "").toUpperCase() === "DELIVERED"
+    ).length;
   }, [filteredOrders]);
 
   const filteredAOV = useMemo(() => {
     return filteredOrders.length > 0
-      ? Math.round(filteredOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0) / filteredOrders.length)
+      ? Math.round(
+          filteredOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0) /
+            filteredOrders.length
+        )
       : 0;
   }, [filteredOrders]);
 
   const codPendingFiltered = useMemo(() => {
     return filteredOrders
-      .filter(
-        (o) =>
-          o.paymentMethod === "COD" &&
-          o.status !== "DELIVERED" &&
-          o.status !== "CANCELLED" &&
-          o.status !== "RETURNED"
-      )
+      .filter((o) => {
+        const method = String(o.paymentMethod || "").toUpperCase();
+        const status = String(o.status || "").toUpperCase();
+        return (
+          method === "COD" &&
+          status !== "DELIVERED" &&
+          status !== "CANCELLED" &&
+          status !== "RETURNED"
+        );
+      })
       .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
   }, [filteredOrders]);
 
-  // Dynamic Chart Data points based on timeframe
-  const chartPointsData = useMemo(() => {
-    const pointsList = [];
-
-    if (timeframe === "day") {
-      // 6 time blocks across the day: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00
-      const hours = ["04:00", "08:00", "12:00", "16:00", "20:00", "23:59"];
-      hours.forEach((h, idx) => {
-        const rev = filteredOrders
-          .filter((_, oIdx) => oIdx % hours.length === idx)
-          .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-        pointsList.push({
-          label: h,
-          display: h,
-          revenue: rev || 0
-        });
-      });
-    } else if (timeframe === "week") {
-      // 7 days of the week
-      const dayNamesEn = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-      const dayNamesBn = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(anchorDate);
-        d.setDate(d.getDate() - i);
-        const iso = d.toISOString().slice(0, 10);
-        const dayIdx = d.getDay();
-
-        const rev = filteredOrders
-          .filter((o) => o.createdAt && String(o.createdAt).slice(0, 10) === iso)
-          .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-
-        pointsList.push({
-          label: isEnglish ? dayNamesEn[dayIdx] : dayNamesBn[dayIdx],
-          display: `${d.getDate()} ${d.toLocaleString("en-US", { month: "short" })}`,
-          revenue: rev
-        });
-      }
-    } else if (timeframe === "month" || timeframe === "custom") {
-      // 4 Weekly intervals
-      for (let w = 1; w <= 4; w++) {
-        const rev = filteredOrders
-          .filter((_, idx) => (idx % 4) + 1 === w)
-          .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-        pointsList.push({
-          label: `Week ${w}`,
-          display: `Week ${w} Period`,
-          revenue: rev
-        });
-      }
-    } else {
-      // 3months, 6months, year: Monthly intervals
-      const monthCount = timeframe === "3months" ? 3 : timeframe === "6months" ? 6 : 12;
-      for (let m = monthCount - 1; m >= 0; m--) {
-        const d = new Date(anchorDate);
-        d.setMonth(d.getMonth() - m);
-        const monthName = d.toLocaleString("en-US", { month: "short" });
-        const rev = filteredOrders
-          .filter((_, idx) => idx % monthCount === (monthCount - 1 - m))
-          .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-        pointsList.push({
-          label: monthName,
-          display: `${monthName} ${d.getFullYear()}`,
-          revenue: rev
-        });
-      }
-    }
-
-    // Ensure chart has visual life if filteredRevenue exists
-    const totalRevCalc = pointsList.reduce((s, p) => s + p.revenue, 0);
-    if (totalRevCalc === 0 && filteredRevenue > 0) {
-      filteredOrders.forEach((o, idx) => {
-        const b = idx % pointsList.length;
-        pointsList[b].revenue += Number(o.total) || 0;
-      });
-    }
-
-    return pointsList;
-  }, [timeframe, filteredOrders, anchorDate, isEnglish, filteredRevenue]);
-
   // Chart coordinates
-  const chartWidth = 580;
-  const chartHeight = 190;
-  const paddingX = 35;
+  const chartWidth = 600;
+  const chartHeight = 200;
+  const paddingX = 56;
+  const paddingRight = 24;
   const paddingYTop = 25;
   const paddingYBottom = 35;
-  const usableWidth = chartWidth - paddingX * 2;
+  const usableWidth = chartWidth - paddingX - paddingRight;
   const usableHeight = chartHeight - paddingYTop - paddingYBottom;
 
   const maxVal = Math.max(...chartPointsData.map((p) => p.revenue), 100);
 
   const svgPoints = chartPointsData.map((p, idx) => {
-    const x = paddingX + (idx / Math.max(chartPointsData.length - 1, 1)) * usableWidth;
+    const x =
+      chartPointsData.length === 1
+        ? paddingX + usableWidth / 2
+        : paddingX + (idx / Math.max(chartPointsData.length - 1, 1)) * usableWidth;
     const y = chartHeight - paddingYBottom - (p.revenue / maxVal) * usableHeight;
     return { ...p, x, y };
   });
+
+  const maxLabels = 12;
+  const labelStride = Math.max(1, Math.ceil(svgPoints.length / maxLabels));
 
   const createSmoothPath = (pts) => {
     if (!pts || pts.length === 0) return "";
@@ -279,15 +185,14 @@ const PopupGraph = ({
 
   const linePath = createSmoothPath(svgPoints);
   const areaPath =
-    svgPoints.length > 0
+    svgPoints.length > 0 && filteredRevenue > 0
       ? `${linePath} L ${svgPoints[svgPoints.length - 1].x},${chartHeight - paddingYBottom} L ${svgPoints[0].x},${chartHeight - paddingYBottom} Z`
       : "";
 
-  // Product-wise aggregation
+  // Product-wise aggregation using settled revenue orders in range
   const productAnalytics = useMemo(() => {
     const map = {};
 
-    // 1. Initialize with all known products from catalog
     products.forEach((prod) => {
       map[prod.id] = {
         id: prod.id,
@@ -295,7 +200,11 @@ const PopupGraph = ({
         nameBn: prod.nameBn || prod.bengaliName || prod.name,
         category: prod.category || "General",
         price: prod.price || 0,
-        image: prod.thumbnail || prod.image || "",
+        image:
+          prod.thumbnail ||
+          prod.image ||
+          (Array.isArray(prod.images) ? prod.images[0] : "") ||
+          "",
         stock: prod.stock ?? 25,
         unitsSold: 0,
         revenue: 0,
@@ -303,8 +212,8 @@ const PopupGraph = ({
       };
     });
 
-    // 2. Aggregate sales from filtered orders
     filteredOrders.forEach((order) => {
+      if (!isSettledOrderEarning(order)) return;
       if (Array.isArray(order.items) && order.items.length > 0) {
         order.items.forEach((item) => {
           const pId = item.productId || item.id;
@@ -328,18 +237,9 @@ const PopupGraph = ({
           map[pId].revenue += itemTotal;
           map[pId].ordersCount += 1;
         });
-      } else {
-        // Fallback if order has no explicit items array: attribute to first product
-        const firstProdId = products[0]?.id;
-        if (firstProdId && map[firstProdId]) {
-          map[firstProdId].unitsSold += 1;
-          map[firstProdId].revenue += Number(order.total) || 0;
-          map[firstProdId].ordersCount += 1;
-        }
       }
     });
 
-    // Filter by search query
     const list = Object.values(map);
     if (!searchQuery.trim()) {
       return list.sort((a, b) => b.revenue - a.revenue);
@@ -359,7 +259,6 @@ const PopupGraph = ({
     return productAnalytics.reduce((sum, p) => sum + p.unitsSold, 0);
   }, [productAnalytics]);
 
-  // Category distribution for visual flowchart
   const categoryStats = useMemo(() => {
     const catMap = {};
     productAnalytics.forEach((p) => {
@@ -385,9 +284,15 @@ const PopupGraph = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 transition-all duration-300">
+    <div
+      className="fixed inset-0 z-50 bg-black/40 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 transition-all duration-300"
+      onClick={onClose}
+    >
       {/* Modal Dialog Window */}
-      <div className="bg-white w-full max-w-6xl max-h-[92vh] rounded-3xl shadow-2xl border border-neutral-200 overflow-hidden flex flex-col animate-in fade-in zoom-in-95">
+      <div
+        className="bg-white w-full max-w-6xl max-h-[92vh] rounded-3xl shadow-2xl border border-neutral-200 overflow-hidden flex flex-col animate-in fade-in zoom-in-95"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Modal Header */}
         <div className="p-5 sm:p-6 border-b border-neutral-200 flex flex-wrap items-center justify-between gap-4 bg-neutral-50/70">
           <div className="flex items-center gap-3">
@@ -395,16 +300,16 @@ const PopupGraph = ({
               <TrendingUp className="w-6 h-6" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-xl font-black text-neutral-900">
                   {"Total Earnings & Sales Analytics"}
                 </h2>
                 <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  {"Live Synced"}
+                  {bounds.rangeLabel}
                 </span>
               </div>
               <p className="text-xs text-neutral-500 mt-0.5">
-                {"Multi-dimensional revenue tracking, order timeline & product-wise sales breakdown"}
+                {"Real-time settled revenue tracking, order timeline & product-wise sales breakdown"}
               </p>
             </div>
           </div>
@@ -432,17 +337,10 @@ const PopupGraph = ({
 
               {/* Timeframe pill tabs */}
               <div className="flex flex-wrap items-center gap-1.5 bg-neutral-100 p-1 rounded-xl">
-                {[
-                  { key: "day", labelEn: "Today / Day", labelBn: "Daily" },
-                  { key: "week", labelEn: "Weekly", labelBn: "Weekly" },
-                  { key: "month", labelEn: "Monthly", labelBn: "Monthly" },
-                  { key: "3months", labelEn: "3 Months", labelBn: "3 Months" },
-                  { key: "6months", labelEn: "6 Months", labelBn: "6 Months" },
-                  { key: "year", labelEn: "Yearly", labelBn: "Yearly" },
-                  { key: "custom", labelEn: "Custom Range", labelBn: "Custom" }
-                ].map((tab) => (
+                {POPUP_TIMEFRAME_OPTIONS.map((tab) => (
                   <button
                     key={tab.key}
+                    type="button"
                     onClick={() => setTimeframe(tab.key)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       timeframe === tab.key
@@ -450,7 +348,7 @@ const PopupGraph = ({
                         : "text-neutral-600 hover:text-neutral-900"
                     }`}
                   >
-                    {isEnglish ? tab.labelEn : tab.labelBn}
+                    {tab.label}
                   </button>
                 ))}
               </div>
@@ -464,15 +362,21 @@ const PopupGraph = ({
                 </span>
                 <input
                   type="date"
-                  value={customStartDate}
-                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  value={customRange.start}
+                  max={customRange.end || undefined}
+                  onChange={(e) =>
+                    setCustomRange((prev) => ({ ...prev, start: e.target.value }))
+                  }
                   className="px-3 py-1.5 border border-neutral-300 rounded-xl font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 />
                 <span className="text-neutral-400">—</span>
                 <input
                   type="date"
-                  value={customEndDate}
-                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  value={customRange.end}
+                  min={customRange.start || undefined}
+                  onChange={(e) =>
+                    setCustomRange((prev) => ({ ...prev, end: e.target.value }))
+                  }
                   className="px-3 py-1.5 border border-neutral-300 rounded-xl font-medium focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 />
               </div>
@@ -493,7 +397,7 @@ const PopupGraph = ({
                 {formatBDT(filteredRevenue)}
               </div>
               <div className="text-[11px] text-emerald-700 mt-1 font-semibold">
-                {"Delivered & confirmed orders"}
+                {"Paid & delivered orders"}
               </div>
             </div>
 
@@ -525,7 +429,7 @@ const PopupGraph = ({
                 {totalUnitsSold} {"Pcs"}
               </div>
               <div className="text-[11px] text-purple-600 mt-1 font-semibold">
-                {"Across all catalog items"}
+                {"Paid & delivered items"}
               </div>
             </div>
 
@@ -559,7 +463,7 @@ const PopupGraph = ({
                     </span>
                   </h3>
                   <p className="text-[11px] text-neutral-400">
-                    {"Interactive curve for selected timeframe"}
+                    {`Settled & paid revenue trend • ${bounds.rangeLabel}`}
                   </p>
                 </div>
                 <span className="text-xs font-extrabold text-neutral-900 bg-neutral-100 px-3 py-1 rounded-xl">
@@ -580,38 +484,39 @@ const PopupGraph = ({
                     </linearGradient>
                   </defs>
 
-                  {/* Horizontal Grid lines */}
-                  <line
-                    x1={paddingX}
-                    y1={paddingYTop}
-                    x2={chartWidth - paddingX}
-                    y2={paddingYTop}
-                    stroke="#E5E7EB"
-                    strokeDasharray="3 3"
-                    strokeWidth="1"
-                  />
-                  <line
-                    x1={paddingX}
-                    y1={chartHeight - paddingYBottom - usableHeight / 2}
-                    x2={chartWidth - paddingX}
-                    y2={chartHeight - paddingYBottom - usableHeight / 2}
-                    stroke="#F3F4F6"
-                    strokeDasharray="3 3"
-                    strokeWidth="1"
-                  />
-                  <line
-                    x1={paddingX}
-                    y1={chartHeight - paddingYBottom}
-                    x2={chartWidth - paddingX}
-                    y2={chartHeight - paddingYBottom}
-                    stroke="#E5E7EB"
-                    strokeWidth="1"
-                  />
+                  {/* Horizontal Grid lines + Y-axis labels */}
+                  {[0, 0.5, 1].map((ratio, idx) => {
+                    const y = chartHeight - paddingYBottom - usableHeight * ratio;
+                    const tickVal = filteredRevenue === 0 && ratio > 0 ? 0 : Math.round(maxVal * ratio);
+                    return (
+                      <g key={idx}>
+                        <line
+                          x1={paddingX}
+                          y1={y}
+                          x2={chartWidth - paddingRight}
+                          y2={y}
+                          stroke={idx === 0 ? "#CBD5E1" : "#E5E7EB"}
+                          strokeDasharray={idx === 0 ? undefined : "3 3"}
+                          strokeWidth="1"
+                        />
+                        <text
+                          x={paddingX - 8}
+                          y={y + 3}
+                          textAnchor="end"
+                          fontSize="9.5"
+                          fill="#64748B"
+                          fontWeight="700"
+                        >
+                          {idx === 0 ? formatBDT(0) : filteredRevenue > 0 ? formatBDT(tickVal) : ""}
+                        </text>
+                      </g>
+                    );
+                  })}
 
                   {/* Gradient Area */}
                   {areaPath && <path d={areaPath} fill="url(#popupAreaGrad)" />}
 
-                  {/* Curve Line */}
+                  {/* Curve Line (180-deg flat baseline when revenue is 0) */}
                   {linePath && (
                     <path
                       d={linePath}
@@ -639,12 +544,16 @@ const PopupGraph = ({
                   {/* Points and Axis Text */}
                   {svgPoints.map((p, idx) => {
                     const isHovered = hoveredPointIndex === idx;
+                    const showLabel =
+                      svgPoints.length <= maxLabels ||
+                      idx % labelStride === 0 ||
+                      idx === svgPoints.length - 1;
                     return (
-                      <g key={idx} className="cursor-pointer">
+                      <g key={p.key || idx} className="cursor-pointer">
                         <circle
                           cx={p.x}
                           cy={p.y}
-                          r={isHovered ? 6 : 4}
+                          r={isHovered ? 6 : svgPoints.length > 20 ? 2.8 : 4}
                           fill="#FFFFFF"
                           stroke="#059669"
                           strokeWidth={isHovered ? 3 : 2}
@@ -655,21 +564,23 @@ const PopupGraph = ({
                         <circle
                           cx={p.x}
                           cy={p.y}
-                          r={18}
+                          r={14}
                           fill="transparent"
                           onMouseEnter={() => setHoveredPointIndex(idx)}
                           onMouseLeave={() => setHoveredPointIndex(null)}
                         />
-                        <text
-                          x={p.x}
-                          y={chartHeight - 10}
-                          textAnchor="middle"
-                          className={`text-[10px] select-none font-semibold ${
-                            isHovered ? "fill-emerald-700 font-bold" : "fill-neutral-400"
-                          }`}
-                        >
-                          {p.label}
-                        </text>
+                        {showLabel && (
+                          <text
+                            x={p.x}
+                            y={chartHeight - 10}
+                            textAnchor="middle"
+                            className={`text-[9.5px] select-none font-semibold ${
+                              isHovered ? "fill-emerald-700 font-bold" : "fill-neutral-400"
+                            }`}
+                          >
+                            {p.label}
+                          </text>
+                        )}
                       </g>
                     );
                   })}
@@ -680,14 +591,14 @@ const PopupGraph = ({
                   <div
                     className="absolute pointer-events-none -top-2 transform -translate-x-1/2 bg-neutral-900 text-white text-xs px-3 py-1.5 rounded-xl shadow-xl z-20 whitespace-nowrap"
                     style={{
-                      left: `${(svgPoints[hoveredPointIndex].x / chartWidth) * 100}%`
+                      left: `${Math.min(Math.max((svgPoints[hoveredPointIndex].x / chartWidth) * 100, 14), 86)}%`
                     }}
                   >
                     <div className="font-extrabold text-emerald-400">
                       {formatBDT(svgPoints[hoveredPointIndex].revenue)}
                     </div>
                     <div className="text-neutral-300 text-[10px]">
-                      {svgPoints[hoveredPointIndex].display}
+                      {svgPoints[hoveredPointIndex].display} • {svgPoints[hoveredPointIndex].orders} orders
                     </div>
                   </div>
                 )}
@@ -702,7 +613,7 @@ const PopupGraph = ({
                   <span>{"Sales Share by Category"}</span>
                 </h3>
                 <p className="text-[11px] text-neutral-400">
-                  {"Distribution of sales across departments"}
+                  {"Distribution of settled sales across categories"}
                 </p>
               </div>
 
@@ -768,9 +679,7 @@ const PopupGraph = ({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={
-                    "Search product or category..."
-                  }
+                  placeholder={"Search product or category..."}
                   className="w-full pl-9 pr-8 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-xs font-medium focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all"
                 />
                 {searchQuery && (
@@ -816,7 +725,6 @@ const PopupGraph = ({
                           key={prod.id}
                           className="hover:bg-neutral-50/80 transition-colors"
                         >
-                          {/* Product Image & Name */}
                           <td className="py-3 px-3">
                             <div className="flex items-center gap-3">
                               {prod.image ? (
@@ -844,24 +752,20 @@ const PopupGraph = ({
                             </div>
                           </td>
 
-                          {/* Category */}
                           <td className="py-3 px-3 text-neutral-600 font-medium">
                             {prod.category}
                           </td>
 
-                          {/* Units Sold */}
                           <td className="py-3 px-3 text-center">
                             <span className="font-extrabold text-neutral-900 px-2 py-0.5 rounded-lg bg-neutral-100">
                               {prod.unitsSold} {"pcs"}
                             </span>
                           </td>
 
-                          {/* Revenue */}
                           <td className="py-3 px-3 font-extrabold text-neutral-900">
                             {formatBDT(prod.revenue)}
                           </td>
 
-                          {/* Sales Share % Bar */}
                           <td className="py-3 px-3">
                             <div className="w-32 space-y-1">
                               <div className="flex justify-between text-[10px] font-bold text-neutral-600">
@@ -876,7 +780,6 @@ const PopupGraph = ({
                             </div>
                           </td>
 
-                          {/* Stock Status */}
                           <td className="py-3 px-3 text-right">
                             <span
                               className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -973,7 +876,7 @@ const PopupGraph = ({
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             <span>
-              {"Data dynamically synchronized with live orders & catalog"}
+              {"Data dynamically synchronized with live orders & analytics engine"}
             </span>
           </div>
           <button

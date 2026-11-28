@@ -1,62 +1,55 @@
 import { useState, useMemo } from "react";
 import { TrendingUp, Maximize2, ArrowUpRight } from "lucide-react";
 import { formatBDT } from "../../utils/bangladesh";
+import {
+  extractLocalISODate,
+  parseLocalISODate,
+  resolveAnalyticsBounds,
+  isWithinISORange,
+  buildAnalyticsSeries,
+} from "../../utils/analyticsRange";
 
 const Graph = ({
   orders = [],
-  isEnglish = true,
   totalRevenue = 0,
   onOpenModal
 }) => {
   const [hoveredPointIndex, setHoveredPointIndex] = useState(null);
 
-  // Group daily revenue for the last 7 days
-  const last7DaysData = useMemo(() => {
-    const revenueByDate = {};
-    orders.forEach((o) => {
-      if (
-        o.paymentStatus === "PAID" ||
-        o.status === "DELIVERED" ||
-        o.status === "CONFIRMED" ||
-        o.status === "IN_TRANSIT"
-      ) {
-        const dateStr = o.createdAt ? String(o.createdAt).slice(0, 10) : "";
-        if (dateStr) {
-          revenueByDate[dateStr] = (revenueByDate[dateStr] || 0) + (Number(o.total) || 0);
-        }
-      }
+  // Real Last 7 Days daily settled earnings (matches AdminAnalytics "7d" 100%)
+  const { bounds, last7DaysData, totalChartRev, avgDailyRev, peakDay } = useMemo(() => {
+    const resolvedBounds = resolveAnalyticsBounds("7d", "", "", orders);
+    const scopedOrders = orders.filter((o) =>
+      isWithinISORange(extractLocalISODate(o?.createdAt), resolvedBounds.startISO, resolvedBounds.endISO)
+    );
+    const series = buildAnalyticsSeries(scopedOrders, resolvedBounds).map((bucket) => {
+      const dt = parseLocalISODate(bucket.date);
+      const dayName = dt ? dt.toLocaleString("en-US", { weekday: "short" }) : bucket.label;
+      return {
+        date: bucket.date,
+        dayName,
+        label: bucket.label,
+        displayDate: bucket.fullLabel || bucket.label,
+        revenue: Number(bucket.earnings || 0),
+        orders: Number(bucket.orders || 0),
+      };
     });
 
-    const orderDates = Object.keys(revenueByDate).sort();
-    let anchorDate = new Date();
-    if (orderDates.length > 0) {
-      const latestOrderDate = new Date(orderDates[orderDates.length - 1]);
-      if (!isNaN(latestOrderDate.getTime()) && latestOrderDate > anchorDate) {
-        anchorDate = latestOrderDate;
-      }
-    }
+    const total7d = series.reduce((sum, d) => sum + d.revenue, 0);
+    const avg7d = Math.round(total7d / Math.max(series.length, 1));
+    const peak = series.reduce(
+      (prev, curr) => (curr.revenue > prev.revenue ? curr : prev),
+      series[0] || { revenue: 0, dayName: "", displayDate: "", label: "" }
+    );
 
-    const days = [];
-    const dayNamesEn = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const dayNamesBn = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(anchorDate);
-      d.setDate(d.getDate() - i);
-      const isoDate = d.toISOString().slice(0, 10);
-      const dayIdx = d.getDay();
-      const rev = revenueByDate[isoDate] || 0;
-
-      days.push({
-        date: isoDate,
-        dayName: isEnglish ? dayNamesEn[dayIdx] : dayNamesBn[dayIdx],
-        displayDate: `${d.getDate()} ${d.toLocaleString("en-US", { month: "short" })}`,
-        revenue: rev
-      });
-    }
-
-    return days;
-  }, [orders, isEnglish]);
+    return {
+      bounds: resolvedBounds,
+      last7DaysData: series,
+      totalChartRev: total7d,
+      avgDailyRev: avg7d,
+      peakDay: peak,
+    };
+  }, [orders]);
 
   // Chart coordinates
   const chartWidth = 340;
@@ -70,7 +63,10 @@ const Graph = ({
   const maxRevenue = Math.max(...last7DaysData.map((d) => d.revenue), 100);
 
   const points = last7DaysData.map((d, idx) => {
-    const x = paddingX + (idx / Math.max(last7DaysData.length - 1, 1)) * usableWidth;
+    const x =
+      last7DaysData.length === 1
+        ? paddingX + usableWidth / 2
+        : paddingX + (idx / Math.max(last7DaysData.length - 1, 1)) * usableWidth;
     const y = chartHeight - paddingYBottom - (d.revenue / maxRevenue) * usableHeight;
     return { ...d, x, y };
   });
@@ -93,16 +89,9 @@ const Graph = ({
 
   const linePath = createCurvedPath(points);
   const areaPath =
-    points.length > 0
+    points.length > 0 && totalChartRev > 0
       ? `${linePath} L ${points[points.length - 1].x},${chartHeight - paddingYBottom} L ${points[0].x},${chartHeight - paddingYBottom} Z`
       : "";
-
-  const peakDay = last7DaysData.reduce(
-    (prev, current) => (prev.revenue > current.revenue ? prev : current),
-    last7DaysData[0] || { revenue: 0, dayName: "" }
-  );
-  const totalChartRev = last7DaysData.reduce((sum, d) => sum + d.revenue, 0);
-  const avgDailyRev = Math.round(totalChartRev / Math.max(last7DaysData.length, 1));
 
   return (
     <div className="bg-white rounded-3xl p-5 border border-neutral-200 shadow-xs flex flex-col justify-between space-y-4">
@@ -114,13 +103,16 @@ const Graph = ({
               <span>{"Total Earnings Analytics"}</span>
             </h3>
             <p className="text-xs text-neutral-400 mt-0.5">
-              {"Weekly revenue & daily performance trend"}
+              {`Last 7 days • ${bounds.rangeLabel}`}
             </p>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 hidden sm:inline-block">
-              {formatBDT(totalRevenue)}
+            <span
+              className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 hidden sm:inline-block"
+              title={`All-time total: ${formatBDT(totalRevenue)}`}
+            >
+              {formatBDT(totalChartRev)}
             </span>
             <button
               onClick={onOpenModal}
@@ -143,7 +135,7 @@ const Graph = ({
               {formatBDT(peakDay.revenue)}
             </span>
             <span className="text-[10px] text-emerald-600 block mt-0.5 font-medium">
-              {peakDay.dayName} ({peakDay.displayDate})
+              {peakDay.revenue > 0 ? `${peakDay.dayName} (${peakDay.label})` : "No paid sales in 7d"}
             </span>
           </div>
 
@@ -155,7 +147,7 @@ const Graph = ({
               {formatBDT(avgDailyRev)}
             </span>
             <span className="text-[10px] text-neutral-500 block mt-0.5 font-medium">
-              {"Past 7 days"}
+              {"Last 7 days"}
             </span>
           </div>
         </div>
@@ -205,7 +197,7 @@ const Graph = ({
           {/* Gradient Area Fill */}
           {areaPath && <path d={areaPath} fill="url(#earningsAreaGradSummary)" />}
 
-          {/* Curve Stroke Line */}
+          {/* Curve Stroke Line (180-deg flat line when all 7 days are 0) */}
           {linePath && (
             <path
               d={linePath}
@@ -258,11 +250,11 @@ const Graph = ({
                   x={p.x}
                   y={chartHeight - 6}
                   textAnchor="middle"
-                  className={`text-[10px] select-none font-semibold ${
+                  className={`text-[9px] select-none font-semibold ${
                     isHovered ? "fill-emerald-700 font-bold" : "fill-neutral-400"
                   }`}
                 >
-                  {p.dayName}
+                  {p.label}
                 </text>
               </g>
             );
@@ -274,14 +266,14 @@ const Graph = ({
           <div
             className="absolute pointer-events-none -top-2 transform -translate-x-1/2 bg-neutral-900 text-white text-[10px] px-2.5 py-1 rounded-lg shadow-lg z-10 whitespace-nowrap"
             style={{
-              left: `${(points[hoveredPointIndex].x / chartWidth) * 100}%`
+              left: `${Math.min(Math.max((points[hoveredPointIndex].x / chartWidth) * 100, 14), 86)}%`
             }}
           >
             <div className="font-bold text-emerald-400">
               {formatBDT(points[hoveredPointIndex].revenue)}
             </div>
             <div className="text-neutral-300 text-[9px]">
-              {points[hoveredPointIndex].dayName}, {points[hoveredPointIndex].displayDate}
+              {points[hoveredPointIndex].dayName}, {points[hoveredPointIndex].displayDate} • {points[hoveredPointIndex].orders} orders
             </div>
           </div>
         )}
@@ -289,7 +281,7 @@ const Graph = ({
 
       <div className="pt-2 border-t border-neutral-100 text-[11px] text-neutral-400 flex justify-between items-center">
         <span>
-          {"Real-time sync with confirmed orders"}
+          {"Real-time sync with paid & delivered orders"}
         </span>
         <button
           onClick={onOpenModal}
