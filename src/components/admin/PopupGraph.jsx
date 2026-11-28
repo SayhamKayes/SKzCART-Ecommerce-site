@@ -141,7 +141,7 @@ const PopupGraph = ({
           status !== "RETURNED"
         );
       })
-      .reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+      .reduce((sum, o) => sum + getOrderNetEarning(o), 0);
   }, [filteredOrders]);
 
   // Chart coordinates

@@ -617,15 +617,15 @@ const AdminAnalytics = ({ orders = [] }) => {
       else if (status === "CANCELLED") cancelledCount += 1;
 
       if (method === "COD" && !["DELIVERED", "CANCELLED", "RETURNED"].includes(status)) {
-        pendingCodAmount += total;
+        pendingCodAmount += netEarning;
         pendingCodCount += 1;
       }
 
       if (status !== "CANCELLED" && status !== "RETURNED" && gateways[method]) {
         gateways[method].count += 1;
-        gateways[method].amount += total;
+        gateways[method].amount += netEarning;
         if (payStatus === "PAID" || (method === "COD" && status === "DELIVERED")) {
-          gateways[method].paidAmount += total;
+          gateways[method].paidAmount += netEarning;
         }
       }
     }

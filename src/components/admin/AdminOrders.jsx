@@ -339,7 +339,7 @@ const AdminOrders = ({
     let cancelledOrdersAmount = 0;
 
     for (const o of orders) {
-      const amount = Number(o.total || 0);
+      const amount = getOrderNetEarning(o);
       const orderStatus = String(o.status || "").toUpperCase();
       if (orderStatus === "CANCELLED") {
         cancelledOrdersCount += 1;

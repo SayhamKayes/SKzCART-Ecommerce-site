@@ -122,11 +122,11 @@ const AdminOverview = ({
       o.status !== "RETURNED"
   );
   const codPendingTotal = codPendingOrders.reduce(
-    (acc, o) => acc + (Number(o.total) || 0),
+    (acc, o) => acc + getOrderNetEarning(o),
     0
   );
 
-  // Dynamic Live Gateway summary (SSLCommerz, MFS: bKash/Nagad/Rocket, COD)
+  // Dynamic Live Gateway summary (SSLCommerz, MFS: bKash/Nagad/Rocket, COD - excl. delivery charges)
   const gatewaySummary = useMemo(() => {
     let ssl = 0;
     let mfs = 0;
@@ -135,7 +135,7 @@ const AdminOverview = ({
       const orderStatus = String(o.status || "").toUpperCase();
       if (orderStatus === "CANCELLED" || orderStatus === "RETURNED") continue;
       const method = String(o.paymentMethod || "").toUpperCase();
-      const amount = Number(o.total) || 0;
+      const amount = getOrderNetEarning(o);
       if (method === "SSLCOMMERZ") ssl += amount;
       else if (method === "BKASH" || method === "NAGAD" || method === "ROCKET") mfs += amount;
       else if (method === "COD") cod += amount;
