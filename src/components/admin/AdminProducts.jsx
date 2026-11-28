@@ -978,14 +978,16 @@ const AdminProducts = ({
     let finalNewName = newName.trim();
     let finalNewNameBn = newNameBn.trim() || finalNewName;
 
+    const cleanSlug = (finalNewName || finalNewNameBn)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
     const prod = {
       id: `prod-${Date.now()}`,
       name: finalNewName || finalNewNameBn,
       nameBn: finalNewNameBn || finalNewName,
-      slug: (finalNewName || finalNewNameBn)
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, "-")
-        .replace(/-+/g, "-"),
+      slug: cleanSlug || `prod-${Date.now()}`,
       category: finalCategory,
       price: Number(newPrice) || 0,
       regularPrice: Number(newRegularPrice) || Number(newPrice) || 0,
