@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { formatBDT, formatBDTDateTime } from "../../utils/bangladesh";
 import { formatOrderStatusLabel } from "../../utils/orderStatus";
+import { getOrderNetEarning } from "../../utils/analyticsRange";
 import { apiClient } from "../../services/api";
 import { realtimeService } from "../../services/realtime";
 import { useLanguage } from "../../Context/LanguageContext";
@@ -158,7 +159,7 @@ const AdminOrders = ({
       if (!rawDate || rawDate.length < 10) continue;
       if (rawDate >= start && rawDate <= end) {
         count += 1;
-        totalRevenue += Number(o.total || 0);
+        totalRevenue += getOrderNetEarning(o);
       }
     }
     return { count, totalRevenue };

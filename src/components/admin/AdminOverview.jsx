@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { formatBDT } from "../../utils/bangladesh";
 import { formatOrderStatusLabel } from "../../utils/orderStatus";
+import { getOrderNetEarning, isSettledOrderEarning } from "../../utils/analyticsRange";
 import { useLanguage } from "../../Context/LanguageContext";
 import { apiClient } from "../../services/api";
 import { realtimeService } from "../../services/realtime";
@@ -93,13 +94,9 @@ const AdminOverview = ({
     [orders]
   );
 
-  // Financial & Operational Metrics
+  // Financial & Operational Metrics (Earnings always exclude delivery charges)
   const totalRevenue = activeOrders.reduce(
-    (acc, o) =>
-      acc +
-      (o.paymentStatus === "PAID" || o.status === "DELIVERED"
-        ? Number(o.total) || 0
-        : 0),
+    (acc, o) => acc + (isSettledOrderEarning(o) ? getOrderNetEarning(o) : 0),
     0
   );
   const pendingOrders = activeOrders.filter((o) => o.status === "PENDING");
@@ -146,11 +143,13 @@ const AdminOverview = ({
     return { ssl, mfs, cod, total: ssl + mfs + cod };
   }, [activeOrders]);
 
-  // Marketing attribution breakdown
+  // Marketing attribution breakdown (excluding delivery charges & cancelled orders)
   const sourceStats = {};
-  orders.forEach((o) => {
+  activeOrders.forEach((o) => {
+    const st = String(o.status || "").toUpperCase();
+    if (st === "CANCELLED" || st === "RETURNED") return;
     const src = o.utm?.source || "direct";
-    sourceStats[src] = (sourceStats[src] || 0) + (Number(o.total) || 0);
+    sourceStats[src] = (sourceStats[src] || 0) + getOrderNetEarning(o);
   });
 
   // Safe navigation helper that applies the status & optional payment method filter in the Orders tab

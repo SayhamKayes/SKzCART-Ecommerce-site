@@ -28,6 +28,12 @@ export const isSettledOrderEarning = (order) => {
   return payStatus === "PAID" || status === "DELIVERED";
 };
 
+export const getOrderNetEarning = (order) => {
+  const total = Number(order?.total || 0);
+  const deliveryFee = Number(order?.deliveryFee || 0);
+  return Math.max(0, total - deliveryFee);
+};
+
 const pad2 = (n) => String(n).padStart(2, "0");
 
 /**
@@ -286,8 +292,8 @@ export const buildAnalyticsSeries = (scopedOrders = [], bounds) => {
     const status = String(o.status || "").toUpperCase();
     const payStatus = String(o.paymentStatus || "").toUpperCase();
     bucket.orders += 1;
-    if (payStatus === "PAID" || status === "DELIVERED") {
-      bucket.earnings += Number(o.total || 0);
+    if (isSettledOrderEarning(o)) {
+      bucket.earnings += getOrderNetEarning(o);
     }
     if (status === "PENDING") bucket.pending += 1;
     if (status === "CONFIRMED") bucket.confirmed += 1;

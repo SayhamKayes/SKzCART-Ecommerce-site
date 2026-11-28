@@ -22,6 +22,7 @@ import {
   isWithinISORange,
   buildAnalyticsSeries,
   isSettledOrderEarning,
+  getOrderNetEarning,
 } from "../../utils/analyticsRange";
 
 const PopupGraph = ({
@@ -105,10 +106,10 @@ const PopupGraph = ({
     };
   }, [orders, timeframe, customRange.start, customRange.end]);
 
-  // KPIs for the selected timeframe (strictly matching AdminAnalytics)
+  // KPIs for the selected timeframe (strictly matching AdminAnalytics, excluding delivery charges)
   const filteredRevenue = useMemo(() => {
     return filteredOrders.reduce(
-      (sum, o) => sum + (isSettledOrderEarning(o) ? Number(o.total) || 0 : 0),
+      (sum, o) => sum + (isSettledOrderEarning(o) ? getOrderNetEarning(o) : 0),
       0
     );
   }, [filteredOrders]);

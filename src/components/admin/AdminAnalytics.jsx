@@ -27,6 +27,8 @@ import {
   resolveAnalyticsBounds,
   isWithinISORange,
   buildAnalyticsSeries,
+  isSettledOrderEarning,
+  getOrderNetEarning,
 } from "../../utils/analyticsRange";
 
 const createSmoothPath = (pts) => {
@@ -604,8 +606,9 @@ const AdminAnalytics = ({ orders = [] }) => {
       const payStatus = String(o.paymentStatus || "").toUpperCase();
       const method = String(o.paymentMethod || "").toUpperCase();
       const total = Number(o.total || 0);
+      const netEarning = getOrderNetEarning(o);
 
-      if (payStatus === "PAID" || status === "DELIVERED") totalEarnings += total;
+      if (isSettledOrderEarning(o)) totalEarnings += netEarning;
       if (status === "PENDING") pendingCount += 1;
       else if (status === "CONFIRMED") pendingConfirmationCount += 1;
       else if (["COURIER_CREATED", "PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY"].includes(status)) {

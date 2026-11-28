@@ -47,6 +47,7 @@ import { apiClient, API_BASE_URL } from "../../services/api";
 import { marketingTracker } from "../../services/marketing";
 import { realtimeService } from "../../services/realtime";
 import { formatBDT } from "../../utils/bangladesh";
+import { getOrderNetEarning } from "../../utils/analyticsRange";
 import { useLanguage } from "../../Context/LanguageContext";
 import { useThemeConfig } from "../frontPanel/FrontPanelContext";
 
@@ -752,7 +753,7 @@ const AdminMarketing = ({
       });
 
       const liveOrdersCount = matchingOrders.length;
-      const liveRevenue = matchingOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+      const liveRevenue = matchingOrders.reduce((sum, o) => sum + getOrderNetEarning(o), 0);
 
       // Count live product clicks/add-to-carts from tracked events
       const matchingClicks = (Array.isArray(recentEvents) ? recentEvents : []).filter((ev) => {
